@@ -1,6 +1,6 @@
 """The intersection scene.
 
-    python -m simulator.world                      # open a window; drag to orbit, scroll to zoom
+    python -m simulator.world                      # open the interactive window
     python -m simulator.world --frames DIR         # simulate, save one frame per camera, no window
     python -m simulator.world --frames DIR --egl   # same, on a machine with no X server
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from panda3d.core import loadPrcFileData
 from PIL import Image
-from ursina import EditorCamera, Entity, Ursina, camera, time
+from ursina import Entity, Ursina
 
 from controller.traffic_lights import Approach
 from simulator.assets import extract_models, model_entity
@@ -20,6 +20,7 @@ from simulator.roads import build_roads
 from simulator.signals import SignalHead
 from simulator.simulation import TIME_STEP_S, Simulation
 from simulator.vehicles import VehicleViews
+from simulator.viewer import Viewer
 
 BUILDING_SCALE = 10
 # Model, x, z, rotation_y. Set back from the roads so they never block a camera.
@@ -34,7 +35,6 @@ BUILDINGS = [
     ("building-n", -62, -32, 90),
 ]
 SHADOW_WARMUP_FRAMES = 2  # The shadow map is not ready until the second frame.
-MAX_CATCH_UP_S = 0.25  # After a stall the simulation slows down instead of jumping ahead.
 
 
 class World:
@@ -55,22 +55,6 @@ class World:
         self.vehicles.show(simulation.traffic.vehicles)
 
 
-class LiveRunner(Entity):
-    """Ursina calls update() every frame; this runs the fixed steps that are due."""
-
-    def __init__(self, world: World, simulation: Simulation):
-        super().__init__()
-        self.world, self.simulation = world, simulation
-        self.unsimulated_s = 0.0
-
-    def update(self):
-        self.unsimulated_s = min(self.unsimulated_s + time.dt, MAX_CATCH_UP_S)
-        while self.unsimulated_s >= TIME_STEP_S:
-            self.simulation.step()
-            self.unsimulated_s -= TIME_STEP_S
-        self.world.show(self.simulation)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frames", type=Path, help="save one PNG per camera here and exit")
@@ -85,9 +69,9 @@ def main() -> None:
     app = Ursina(window_type=window_type, size=(64, 64) if args.frames else (1280, 720), development_mode=False)
 
     world = World(app)
-    simulation = Simulation(args.seed)
 
     if args.frames:
+        simulation = Simulation(args.seed)
         for _ in range(int(args.seconds / TIME_STEP_S)):
             simulation.step()
         world.show(simulation)
@@ -98,10 +82,7 @@ def main() -> None:
             Image.fromarray(frame_camera.frame()[:, :, ::-1]).save(args.frames / f"{name}.png")
         return
 
-    camera.clip_plane_far = 1000
-    camera.z = -90
-    EditorCamera(rotation=(35, 30, 0))
-    LiveRunner(world, simulation)
+    Viewer(world, args.seed)
     app.run()
 
 

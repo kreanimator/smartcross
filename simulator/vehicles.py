@@ -14,6 +14,11 @@ class VehicleViews:
     def __init__(self):
         self.entities = {}
 
+    def clear(self) -> None:
+        for entity in self.entities.values():
+            destroy(entity)
+        self.entities.clear()
+
     def show(self, vehicles: list[Vehicle]) -> None:
         ids = {vehicle.id for vehicle in vehicles}
         for id in [id for id in self.entities if id not in ids]:
