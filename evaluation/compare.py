@@ -37,6 +37,8 @@ SCENARIOS = {
     "balanced": rates(8, 8),
     "directional rush": rates(4, 16),
     "low traffic": rates(2, 2),
+    "overloaded": rates(14, 14),
+    "uneven overload": rates(6, 22),
 }
 
 # The best (north-south, east-west) green times found by trying plans on each scenario.
@@ -46,6 +48,8 @@ MATCHED_GREENS = {
     "balanced": (10, 10),
     "directional rush": (10, 35),
     "low traffic": (10, 10),
+    "overloaded": (45, 45),
+    "uneven overload": (15, 60),
 }
 STRATEGY_NAMES = ("fixed 20/20", "fixed matched", "adaptive")
 

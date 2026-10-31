@@ -3,7 +3,14 @@ import sys
 
 import pytest
 
-from controller.adaptive import MAX_QUEUE, MAX_WAIT_S, OUTGROWN_MARGIN, Adaptive, pressure
+from controller.adaptive import (
+    MAX_QUEUE,
+    MAX_WAIT_S,
+    MIN_GREEN_BEFORE_INTERRUPT_S,
+    OUTGROWN_MARGIN,
+    Adaptive,
+    pressure,
+)
 from controller.observation import ApproachObservation, TrafficObservation
 from controller.traffic_lights import Approach, LightSnapshot, Phase
 from evaluation.compare import rates
@@ -65,14 +72,34 @@ def test_far_away_vehicles_do_not_count_as_clearing():
 
 
 def test_long_wait_interrupts_a_clearing_queue():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(queued=20)
+    seen[Approach.EAST] = ApproachObservation(queued=1, oldest_wait_s=MAX_WAIT_S)
     strategy = on_ns()
-    assert strategy.decide(observation(north=20, east=1, wait=MAX_WAIT_S), green_ns(15)) == "EW"
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
     assert strategy.decisions[-1].reason == "long wait"
+
+
+def test_nothing_interrupts_clearing_before_the_green_has_earned_it():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(queued=1)
+    seen[Approach.EAST] = ApproachObservation(queued=MAX_QUEUE + 5, oldest_wait_s=MAX_WAIT_S + 5)
+    strategy = on_ns()
+    too_soon = green_ns(MIN_GREEN_BEFORE_INTERRUPT_S - 1)
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), too_soon) == "NS"
+    assert strategy.decide(TrafficObservation(101.0, "test", seen), green_ns(MIN_GREEN_BEFORE_INTERRUPT_S)) == "EW"
+
+
+def test_a_cleared_green_can_still_end_before_the_gate():
+    strategy = on_ns()
+    assert strategy.decide(observation(east=1), green_ns(MIN_GREEN_BEFORE_INTERRUPT_S - 1)) == "EW"
+    assert strategy.decisions[-1].reason == "queue cleared"
 
 
 def test_long_queue_interrupts_a_clearing_queue():
     seen = {approach: ApproachObservation() for approach in Approach}
-    seen[Approach.NORTH] = ApproachObservation(queued=30)
+    seen[Approach.NORTH] = ApproachObservation(queued=2, approaching=5)
+    seen[Approach.SOUTH] = ApproachObservation(queued=3, approaching=3)
     seen[Approach.EAST] = ApproachObservation(queued=MAX_QUEUE)
     strategy = on_ns()
     assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
@@ -84,6 +111,16 @@ def test_other_side_outgrowing_this_one_interrupts_clearing():
     mine = 1
     assert strategy.decide(observation(north=mine, east=mine + OUTGROWN_MARGIN + 1), green_ns(15)) == "EW"
     assert strategy.decisions[-1].reason == "outgrown"
+
+
+def test_moving_vehicles_count_fully_when_deciding_to_interrupt_clearing():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(approaching=8, near_line=3)
+    seen[Approach.SOUTH] = ApproachObservation(approaching=8, near_line=3)
+    seen[Approach.EAST] = ApproachObservation(queued=9)
+    seen[Approach.WEST] = ApproachObservation(queued=9)
+    strategy = on_ns()
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "NS"
 
 
 def test_just_under_the_outgrown_margin_keeps_clearing():

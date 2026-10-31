@@ -1,10 +1,10 @@
 """Demand-based strategy: keep green while it is being used, unless the other side can't wait.
 
-Green is held while vehicles are still clearing the stop line. Three checks end that
-hold early, so the other side doesn't pay for a long queue here: its longest wait, its
-queue length, and its pressure compared with this side's. Once this side has cleared,
-green moves to the other side as soon as it has more pressure. Green also ends at
-max_green_s if anyone at all is waiting.
+Green is held while vehicles are still clearing the stop line. Once it has lasted long
+enough to be worth the time a switch loses, three checks can end that hold early, so the
+other side doesn't pay for a long queue here: its longest wait, its queue length, and
+its total vehicles. Once this side has cleared, green moves to the other side as soon as
+it has more pressure. Green also ends at max_green_s if anyone at all is waiting.
 """
 
 from dataclasses import dataclass
@@ -18,9 +18,10 @@ OTHER = {"NS": "EW", "EW": "NS"}
 
 APPROACHING_WEIGHT = 0.5  # A moving vehicle counts as half of a queued one.
 WAIT_S_PER_VEHICLE = 10  # Ten seconds of waiting counts as one queued vehicle.
+MIN_GREEN_BEFORE_INTERRUPT_S = 15  # Switching loses 5 s, so a busy green must earn it first.
 MAX_WAIT_S = 40  # The other side's longest wait that a clearing queue may cause.
 MAX_QUEUE = 10  # The other side's longest queue; a lane holds about 13 vehicles.
-OUTGROWN_MARGIN = 6  # How much more pressure the other side needs to interrupt clearing.
+OUTGROWN_MARGIN = 6  # How many more vehicles the other side needs to interrupt clearing.
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,10 @@ def pressure(observation: TrafficObservation, direction: str) -> float:
     seen = seen_from(observation, direction)
     vehicles = sum(a.queued + APPROACHING_WEIGHT * a.approaching for a in seen)
     return vehicles + max(a.oldest_wait_s for a in seen) / WAIT_S_PER_VEHICLE
+
+
+def vehicles_left(observation: TrafficObservation, direction: str) -> int:
+    return sum(a.queued + a.approaching for a in seen_from(observation, direction))
 
 
 def is_clearing(observation: TrafficObservation, direction: str) -> bool:
@@ -83,12 +88,14 @@ class Adaptive:
             return "max green"
         if not is_clearing(observation, green):
             return "queue cleared" if theirs > mine else None
+        if seconds_green < MIN_GREEN_BEFORE_INTERRUPT_S:
+            return None
 
         waiting = seen_from(observation, other)
         if max(a.oldest_wait_s for a in waiting) >= MAX_WAIT_S:
             return "long wait"
         if max(a.queued for a in waiting) >= MAX_QUEUE:
             return "long queue"
-        if theirs > mine + OUTGROWN_MARGIN:
+        if vehicles_left(observation, other) > vehicles_left(observation, green) + OUTGROWN_MARGIN:
             return "outgrown"
         return None
