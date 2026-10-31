@@ -1,9 +1,10 @@
-"""Demand-based strategy: give green to whichever direction needs it more.
+"""Demand-based strategy: keep green while it is being used, unless the other side can't wait.
 
-Each direction has a pressure: its queued vehicles, partly its moving ones, and how
-long its longest-waiting vehicle has waited. Green switches when the other side's
-pressure is clearly higher, or when green has lasted max_green_s and the other side
-has anyone at all. That limit is what stops a busy road starving a quiet one.
+Green is held while vehicles are still clearing the stop line. Three checks end that
+hold early, so the other side doesn't pay for a long queue here: its longest wait, its
+queue length, and its pressure compared with this side's. Once this side has cleared,
+green moves to the other side as soon as it has more pressure. Green also ends at
+max_green_s if anyone at all is waiting.
 """
 
 from dataclasses import dataclass
@@ -17,7 +18,9 @@ OTHER = {"NS": "EW", "EW": "NS"}
 
 APPROACHING_WEIGHT = 0.5  # A moving vehicle counts as half of a queued one.
 WAIT_S_PER_VEHICLE = 10  # Ten seconds of waiting counts as one queued vehicle.
-SWITCH_MARGIN = 2  # Switching costs lost time, so the other side must clearly need it.
+MAX_WAIT_S = 40  # The other side's longest wait that a clearing queue may cause.
+MAX_QUEUE = 10  # The other side's longest queue; a lane holds about 13 vehicles.
+OUTGROWN_MARGIN = 6  # How much more pressure the other side needs to interrupt clearing.
 
 
 @dataclass(frozen=True)
@@ -31,10 +34,18 @@ class Decision:
     pressure_ew: float
 
 
+def seen_from(observation: TrafficObservation, direction: str):
+    return [observation.approaches[approach] for approach in APPROACHES[direction]]
+
+
 def pressure(observation: TrafficObservation, direction: str) -> float:
-    seen = [observation.approaches[approach] for approach in APPROACHES[direction]]
+    seen = seen_from(observation, direction)
     vehicles = sum(a.queued + APPROACHING_WEIGHT * a.approaching for a in seen)
     return vehicles + max(a.oldest_wait_s for a in seen) / WAIT_S_PER_VEHICLE
+
+
+def is_clearing(observation: TrafficObservation, direction: str) -> bool:
+    return any(a.queued or a.near_line for a in seen_from(observation, direction))
 
 
 class Adaptive:
@@ -49,21 +60,35 @@ class Adaptive:
         if green is None or lights.seconds_in_phase < self.min_green_s:
             return self.target  # Nothing can change yet, so there is nothing to decide.
 
-        mine, theirs = pressure(observation, green), pressure(observation, OTHER[green])
-        if theirs > 0 and lights.seconds_in_phase >= self.max_green_s:
-            self._switch_to(OTHER[green], "max green", observation)
-        elif theirs > mine + SWITCH_MARGIN:
-            self._switch_to(OTHER[green], "more demand", observation)
+        reason = self._reason_to_switch(observation, green, lights.seconds_in_phase)
+        if reason:
+            self.target = OTHER[green]
+            self.decisions.append(
+                Decision(
+                    observation.timestamp_sim_s,
+                    self.target,
+                    reason,
+                    pressure(observation, "NS"),
+                    pressure(observation, "EW"),
+                )
+            )
         return self.target
 
-    def _switch_to(self, direction: str, reason: str, observation: TrafficObservation) -> None:
-        self.target = direction
-        self.decisions.append(
-            Decision(
-                observation.timestamp_sim_s,
-                direction,
-                reason,
-                pressure(observation, "NS"),
-                pressure(observation, "EW"),
-            )
-        )
+    def _reason_to_switch(self, observation: TrafficObservation, green: str, seconds_green: float) -> str | None:
+        other = OTHER[green]
+        mine, theirs = pressure(observation, green), pressure(observation, other)
+        if theirs == 0:
+            return None
+        if seconds_green >= self.max_green_s:
+            return "max green"
+        if not is_clearing(observation, green):
+            return "queue cleared" if theirs > mine else None
+
+        waiting = seen_from(observation, other)
+        if max(a.oldest_wait_s for a in waiting) >= MAX_WAIT_S:
+            return "long wait"
+        if max(a.queued for a in waiting) >= MAX_QUEUE:
+            return "long queue"
+        if theirs > mine + OUTGROWN_MARGIN:
+            return "outgrown"
+        return None

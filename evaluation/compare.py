@@ -2,6 +2,7 @@
 
     python -m evaluation.compare                     # print the comparison
     python -m evaluation.compare --output FILE.json  # also save every run and its settings
+    python -m evaluation.compare --first-seed 200    # use other seeds
     python -m evaluation.compare --decisions         # print one adaptive run's logged switches
 """
 
@@ -18,7 +19,7 @@ from evaluation.metrics import Summary, summarize
 from simulator.simulation import TIME_STEP_S, Simulation
 
 DURATION_S = 1800
-SEEDS = range(10)
+SEED_COUNT = 10
 
 
 def rates(north_south: float, east_west: float) -> dict[Approach, float]:
@@ -63,7 +64,7 @@ def run(job: tuple[str, str, int]) -> Summary:
     return summarize(simulation.traffic)
 
 
-def print_comparison(results: dict[tuple[str, str, int], Summary]) -> None:
+def print_comparison(results: dict[tuple[str, str, int], Summary], seeds: range) -> None:
     columns = {
         "time lost": "mean_time_lost_s",
         "stopped": "mean_delay_s",
@@ -74,24 +75,24 @@ def print_comparison(results: dict[tuple[str, str, int], Summary]) -> None:
         "per hour": "throughput_per_hour",
         "unfinished": "unfinished",
     }
-    print(f"Mean over {len(SEEDS)} seeds, {DURATION_S} simulated seconds each. Times in seconds per vehicle.\n")
+    print(f"Mean over seeds {seeds.start}-{seeds.stop - 1}, {DURATION_S} simulated seconds each. Times in seconds per vehicle.\n")
     print(f"{'scenario':18s}{'strategy':15s}" + "".join(f"{name:>12s}" for name in columns))
     for scenario in SCENARIOS:
         for strategy in STRATEGY_NAMES:
-            runs = [results[scenario, strategy, seed] for seed in SEEDS]
+            runs = [results[scenario, strategy, seed] for seed in seeds]
             values = [np.mean([getattr(r, field) for r in runs]) for field in columns.values()]
             print(f"{scenario:18s}{strategy:15s}" + "".join(f"{v:12.1f}" for v in values))
 
         for baseline in STRATEGY_NAMES[:2]:
             wins = sum(
                 results[scenario, "adaptive", seed].mean_time_lost_s < results[scenario, baseline, seed].mean_time_lost_s
-                for seed in SEEDS
+                for seed in seeds
             )
-            print(f"{'':33s}adaptive lost less time than {baseline} on {wins} of {len(SEEDS)} seeds")
+            print(f"{'':33s}adaptive lost less time than {baseline} on {wins} of {len(seeds)} seeds")
         print()
 
 
-def print_decisions(seed: int = SEEDS[0]) -> None:
+def print_decisions(seed: int) -> None:
     simulation = Simulation(seed, "adaptive", SCENARIOS["default"])
     for _ in range(int(300 / TIME_STEP_S)):
         simulation.step()
@@ -102,17 +103,19 @@ def print_decisions(seed: int = SEEDS[0]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", help="save every run and its settings to this JSON file")
+    parser.add_argument("--first-seed", type=int, default=0, help="first of the seeds to run")
     parser.add_argument("--decisions", action="store_true", help="print one adaptive run's switches and exit")
     args = parser.parse_args()
 
     if args.decisions:
-        print_decisions()
+        print_decisions(args.first_seed)
         return
 
-    jobs = [(scenario, strategy, seed) for scenario in SCENARIOS for strategy in STRATEGY_NAMES for seed in SEEDS]
+    seeds = range(args.first_seed, args.first_seed + SEED_COUNT)
+    jobs = [(scenario, strategy, seed) for scenario in SCENARIOS for strategy in STRATEGY_NAMES for seed in seeds]
     with ProcessPoolExecutor() as pool:
         results = dict(zip(jobs, pool.map(run, jobs)))
-    print_comparison(results)
+    print_comparison(results, seeds)
 
     if args.output:
         with open(args.output, "w") as file:

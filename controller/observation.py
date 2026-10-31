@@ -10,11 +10,12 @@ from controller.traffic_lights import Approach
 class ApproachObservation:
     queued: int = 0
     approaching: int = 0
+    near_line: int = 0  # How many of the approaching vehicles are close to the stop line.
     oldest_wait_s: float = 0.0
     average_speed_mps: float | None = None  # None when no vehicles are seen.
 
     def __post_init__(self):
-        if self.queued < 0 or self.approaching < 0 or self.oldest_wait_s < 0:
+        if min(self.queued, self.approaching, self.near_line, self.oldest_wait_s) < 0:
             raise ValueError(f"invalid observation: {self}")
 
 

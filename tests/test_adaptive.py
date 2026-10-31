@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from controller.adaptive import Adaptive, pressure
+from controller.adaptive import MAX_QUEUE, MAX_WAIT_S, OUTGROWN_MARGIN, Adaptive, pressure
 from controller.observation import ApproachObservation, TrafficObservation
 from controller.traffic_lights import Approach, LightSnapshot, Phase
 from evaluation.compare import rates
@@ -35,16 +35,60 @@ def test_pressure_counts_queues_moving_vehicles_and_waiting():
     assert pressure(TrafficObservation(0, "test", seen), "NS") == 3 + 1 + 2 * 0.5 + 20 / 10
 
 
-def test_switches_when_the_other_side_clearly_needs_it():
+def test_holds_green_while_its_queue_clears():
     strategy = on_ns()
-    assert strategy.decide(observation(north=1, east=6), green_ns(15)) == "EW"
-    assert strategy.decisions[-1].reason == "more demand"
-
-
-def test_holds_when_the_difference_is_small():
-    strategy = on_ns()
-    assert strategy.decide(observation(north=3, east=4), green_ns(15)) == "NS"
+    assert strategy.decide(observation(north=2, east=5), green_ns(15)) == "NS"
     assert strategy.decisions == []
+
+
+def test_holds_green_while_vehicles_are_about_to_reach_the_line():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(approaching=1, near_line=1)
+    seen[Approach.EAST] = ApproachObservation(queued=3)
+    strategy = on_ns()
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "NS"
+
+
+def test_switches_once_cleared_if_the_other_side_has_more():
+    strategy = on_ns()
+    assert strategy.decide(observation(east=1), green_ns(15)) == "EW"
+    assert strategy.decisions[-1].reason == "queue cleared"
+
+
+def test_far_away_vehicles_do_not_count_as_clearing():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(approaching=1)
+    seen[Approach.EAST] = ApproachObservation(queued=1)
+    strategy = on_ns()
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
+    assert strategy.decisions[-1].reason == "queue cleared"
+
+
+def test_long_wait_interrupts_a_clearing_queue():
+    strategy = on_ns()
+    assert strategy.decide(observation(north=20, east=1, wait=MAX_WAIT_S), green_ns(15)) == "EW"
+    assert strategy.decisions[-1].reason == "long wait"
+
+
+def test_long_queue_interrupts_a_clearing_queue():
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(queued=30)
+    seen[Approach.EAST] = ApproachObservation(queued=MAX_QUEUE)
+    strategy = on_ns()
+    assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
+    assert strategy.decisions[-1].reason == "long queue"
+
+
+def test_other_side_outgrowing_this_one_interrupts_clearing():
+    strategy = on_ns()
+    mine = 1
+    assert strategy.decide(observation(north=mine, east=mine + OUTGROWN_MARGIN + 1), green_ns(15)) == "EW"
+    assert strategy.decisions[-1].reason == "outgrown"
+
+
+def test_just_under_the_outgrown_margin_keeps_clearing():
+    strategy = on_ns()
+    assert strategy.decide(observation(north=1, east=1 + OUTGROWN_MARGIN), green_ns(15)) == "NS"
 
 
 def test_does_not_decide_during_minimum_green():
@@ -65,14 +109,14 @@ def test_green_holds_past_max_when_nobody_else_is_there():
 
 def test_target_stays_put_during_yellow():
     strategy = on_ns()
-    strategy.decide(observation(east=6), green_ns(15))
+    strategy.decide(observation(east=1), green_ns(15))
     yellow = LightSnapshot(Phase.NS_YELLOW, {}, 1)
     assert strategy.decide(observation(north=20), yellow) == "EW"
 
 
 def test_decision_log_explains_the_switch():
     strategy = on_ns()
-    strategy.decide(observation(north=1, east=6), green_ns(15))
+    strategy.decide(observation(east=6), green_ns(15))
     decision = strategy.decisions[-1]
     assert (decision.time_s, decision.direction) == (100.0, "EW")
     assert decision.pressure_ew > decision.pressure_ns
@@ -86,8 +130,12 @@ def test_perfect_sensor_reports_only_vehicles_before_the_line():
         Vehicle("queued", Approach.NORTH, "sedan", 2, speed=STOPPED_SPEED / 2, stopped_s=30),
         Vehicle("moving", Approach.NORTH, "sedan", 40, speed=10),
     ]
+    assert observe(traffic).approaches[Approach.NORTH].near_line == 0
+    lane.vehicles[-1].distance = 20
+    assert observe(traffic).approaches[Approach.NORTH].near_line == 1
+    lane.vehicles[-1].distance = 40
     seen = observe(traffic).approaches[Approach.NORTH]
-    assert (seen.queued, seen.approaching, seen.oldest_wait_s) == (1, 1, 30)
+    assert (seen.queued, seen.approaching, seen.near_line, seen.oldest_wait_s) == (1, 1, 0, 30)
     assert observe(traffic).approaches[Approach.SOUTH] == ApproachObservation()
 
 

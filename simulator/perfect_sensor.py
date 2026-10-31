@@ -3,15 +3,19 @@
 from controller.observation import ApproachObservation, TrafficObservation
 from simulator.traffic import STOPPED_SPEED, Lane, Traffic
 
+NEAR_LINE_M = 30  # A moving vehicle this close to its stop line reaches it within seconds.
+
 
 def observe_lane(lane: Lane) -> ApproachObservation:
     before_line = [v for v in lane.vehicles if v.distance >= 0]
     if not before_line:
         return ApproachObservation()
-    queued = sum(v.speed < STOPPED_SPEED for v in before_line)
+    moving = [v for v in before_line if v.speed >= STOPPED_SPEED]
+    queued = len(before_line) - len(moving)
     return ApproachObservation(
         queued=queued,
-        approaching=len(before_line) - queued,
+        approaching=len(moving),
+        near_line=sum(v.distance <= NEAR_LINE_M for v in moving),
         oldest_wait_s=max(v.stopped_s for v in before_line),
         average_speed_mps=sum(v.speed for v in before_line) / len(before_line),
     )
