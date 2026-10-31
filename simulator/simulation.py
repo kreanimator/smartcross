@@ -1,23 +1,31 @@
 """One simulation run: traffic and lights advancing together on a fixed time step."""
 
+from controller.adaptive import Adaptive
 from controller.controller import TrafficController
 from controller.fixed_timer import FixedTimer
-from simulator.traffic import Traffic
+from simulator.perfect_sensor import observe
+from simulator.traffic import ARRIVALS_PER_MINUTE, Traffic
 
 TIME_STEP_S = 1 / 60
+STEPS_PER_OBSERVATION = 60  # The controller gets a new observation once per simulated second.
 MAX_CATCH_UP_S = 0.25  # After a stall the simulation falls behind instead of jumping ahead.
+STRATEGIES = {"fixed": FixedTimer, "adaptive": Adaptive}
 
 
 class Simulation:
-    def __init__(self, seed: int = 42):
-        self.traffic = Traffic(seed)
-        self.controller = TrafficController(FixedTimer())
-        self.lights = self.controller.update(0)
+    def __init__(self, seed: int = 42, strategy="fixed", arrivals_per_minute=ARRIVALS_PER_MINUTE):
+        """strategy is a name from STRATEGIES, or a strategy object."""
+        self.traffic = Traffic(seed, arrivals_per_minute)
+        self.controller = TrafficController(STRATEGIES[strategy]() if isinstance(strategy, str) else strategy)
+        self.lights = self.controller.update(0, observe(self.traffic))
+        self.steps = 0
 
     def step(self) -> None:
         """Vehicles react to the lamps as shown, then the lights advance for the next step."""
         self.traffic.update(TIME_STEP_S, self.lights.lamps)
-        self.lights = self.controller.update(TIME_STEP_S)
+        self.steps += 1
+        observation = observe(self.traffic) if self.steps % STEPS_PER_OBSERVATION == 0 else None
+        self.lights = self.controller.update(TIME_STEP_S, observation)
 
 
 class Playback:

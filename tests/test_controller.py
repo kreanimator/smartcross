@@ -1,11 +1,23 @@
 from controller.controller import TrafficController
 from controller.fixed_timer import FixedTimer
+from controller.observation import TrafficObservation
 from controller.traffic_lights import Phase, Timings, TrafficLights
 
 
+def observation_at(now_s):
+    return TrafficObservation(now_s, "test", {})
+
+
 def test_fixed_timer_alternates_each_period():
-    timer = FixedTimer(period_s=25)
-    assert [timer.decide(t) for t in (0, 24.9, 25, 49.9, 50)] == ["NS", "NS", "EW", "EW", "NS"]
+    timer = FixedTimer()  # 20 s of green plus 5 s of clearance for each direction.
+    times = (0, 24.9, 25, 49.9, 50)
+    assert [timer.decide(observation_at(t), None) for t in times] == ["NS", "NS", "EW", "EW", "NS"]
+
+
+def test_fixed_timer_can_favour_one_direction():
+    timer = FixedTimer(green_ns_s=10, green_ew_s=35)  # NS window 15 s, EW window 40 s.
+    times = (0, 14.9, 15, 54.9, 55)
+    assert [timer.decide(observation_at(t), None) for t in times] == ["NS", "NS", "EW", "EW", "NS"]
 
 
 class AlwaysFlips:
@@ -14,7 +26,7 @@ class AlwaysFlips:
     def __init__(self):
         self.calls = 0
 
-    def decide(self, now_s):
+    def decide(self, observation, lights):
         self.calls += 1
         return "NS" if self.calls % 2 else "EW"
 
@@ -22,7 +34,7 @@ class AlwaysFlips:
 def test_strategy_cannot_bypass_the_safety_timings():
     timings = Timings(min_green_s=10, yellow_s=3, all_red_s=2)
     controller = TrafficController(AlwaysFlips(), TrafficLights(timings))
-    phases = [controller.update(0.1).phase for _ in range(1000)]
+    phases = [controller.update(0.1, observation_at(0)).phase for _ in range(1000)]
     changes = [b for a, b in zip(phases, phases[1:]) if a is not b]
     for phase, next_phase in zip(changes, changes[1:]):
         if phase is Phase.NS_GREEN:
@@ -36,5 +48,5 @@ def test_strategy_cannot_bypass_the_safety_timings():
 
 def test_fixed_timer_run_gives_each_direction_green():
     controller = TrafficController(FixedTimer())
-    phases = {controller.update(0.1).phase for _ in range(1000)}
+    phases = {controller.update(0.1, observation_at(i / 10)).phase for i in range(1000)}
     assert phases == set(Phase)

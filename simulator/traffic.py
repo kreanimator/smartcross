@@ -5,6 +5,7 @@ A vehicle's distance is from its front bumper to its stop line, and goes negativ
 
 import math
 import random
+from collections import deque
 from dataclasses import dataclass
 
 from controller.traffic_lights import Approach, Lamp
@@ -17,6 +18,7 @@ STOP_MARGIN = 0.5  # How far before the stop line a vehicle halts.
 MAX_SPEED = 13  # Metres per second, about 47 km/h.
 ACCELERATION = 2.5
 BRAKING = 3
+STOPPED_SPEED = 1  # Slower than this counts as stopped, in metres per second.
 SPAWN_DISTANCE = ROAD_LENGTH / 2 - STOP_LINE
 EXIT_DISTANCE = -(ROAD_LENGTH / 2 + STOP_LINE)
 
@@ -31,6 +33,14 @@ class Vehicle:
     distance: float
     speed: float = MAX_SPEED
     committed: bool = False  # Too close to stop when the lamp turned yellow, so it keeps going.
+    scheduled_s: float = 0.0  # When it was due to arrive.
+    entry_delay_s: float = 0.0  # How long a backed-up lane kept it from entering.
+    stopped_s: float = 0.0
+    slowdown_s: float = 0.0  # Time lost to going slower than MAX_SPEED, including while stopped.
+
+    @property
+    def delay_s(self) -> float:
+        return self.entry_delay_s + self.stopped_s
 
     def stopping_distance(self) -> float:
         return self.speed**2 / (2 * BRAKING) + STOP_MARGIN
@@ -46,6 +56,8 @@ class Lane:
         self.mean_gap_s = 60 / arrivals_per_minute if arrivals_per_minute else math.inf
         self.next_arrival_s = self._time_between_arrivals()
         self.vehicles: list[Vehicle] = []
+        self.waiting_to_enter: deque[Vehicle] = deque()
+        self.completed: list[Vehicle] = []
         self.spawned = 0
         self.lamp = Lamp.RED
 
@@ -59,6 +71,7 @@ class Lane:
         for vehicle in self.vehicles:
             self._drive(vehicle, leader, dt)
             leader = vehicle
+        self.completed += [v for v in self.vehicles if v.distance <= EXIT_DISTANCE]
         self.vehicles = [v for v in self.vehicles if v.distance > EXIT_DISTANCE]
         self._spawn_arrivals(now_s)
 
@@ -74,6 +87,9 @@ class Lane:
         safe_speed = math.sqrt(2 * BRAKING * room)
         vehicle.speed = min(vehicle.speed + ACCELERATION * dt, MAX_SPEED, safe_speed, room / dt)
         vehicle.distance -= vehicle.speed * dt
+        vehicle.slowdown_s += (1 - vehicle.speed / MAX_SPEED) * dt
+        if vehicle.speed < STOPPED_SPEED:
+            vehicle.stopped_s += dt
 
     def _must_stop_at_line(self, vehicle: Vehicle) -> bool:
         if vehicle.distance < 0:
@@ -81,15 +97,21 @@ class Lane:
         return self.lamp is Lamp.RED or (self.lamp is Lamp.YELLOW and not vehicle.committed)
 
     def _spawn_arrivals(self, now_s: float) -> None:
-        """Add one due arrival. If the lane is backed up to the spawn point, it waits its turn."""
-        if self.next_arrival_s > now_s:
-            return
-        if self.vehicles and SPAWN_DISTANCE - self.vehicles[-1].distance < VEHICLE_LENGTH + MIN_GAP:
-            return
-        self.spawned += 1
-        name = f"{self.approach.value}-{self.spawned}"
-        self.vehicles.append(Vehicle(name, self.approach, self.rng.choice(MODELS), SPAWN_DISTANCE))
-        self.next_arrival_s += self._time_between_arrivals()
+        """Arrivals keep to their schedule. If the lane is backed up to the spawn point, they wait."""
+        while self.next_arrival_s <= now_s:
+            self.spawned += 1
+            name = f"{self.approach.value}-{self.spawned}"
+            model = self.rng.choice(MODELS)
+            self.waiting_to_enter.append(
+                Vehicle(name, self.approach, model, SPAWN_DISTANCE, scheduled_s=self.next_arrival_s)
+            )
+            self.next_arrival_s += self._time_between_arrivals()
+
+        lane_has_room = not self.vehicles or SPAWN_DISTANCE - self.vehicles[-1].distance >= VEHICLE_LENGTH + MIN_GAP
+        if self.waiting_to_enter and lane_has_room:
+            vehicle = self.waiting_to_enter.popleft()
+            vehicle.entry_delay_s = now_s - vehicle.scheduled_s
+            self.vehicles.append(vehicle)
 
     def _time_between_arrivals(self) -> float:
         return self.rng.expovariate(1 / self.mean_gap_s) if self.mean_gap_s != math.inf else math.inf

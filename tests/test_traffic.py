@@ -124,9 +124,10 @@ def test_same_seed_gives_the_same_run_and_another_seed_does_not():
     assert state_of(first) != state_of(other)
 
 
+@pytest.mark.parametrize("strategy", ["fixed", "adaptive"])
 @pytest.mark.parametrize("seed", range(5))
-def test_safety_over_a_long_fixed_timer_run(seed):
-    simulation = Simulation(seed)
+def test_safety_over_a_long_run(seed, strategy):
+    simulation = Simulation(seed, strategy)
     before = {}
     crossed = 0
 

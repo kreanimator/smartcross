@@ -7,17 +7,17 @@ from simulator.simulation import Playback, Simulation
 SPEED_KEYS = {"1": 1, "2": 2, "3": 4, "4": 8}
 ORBIT_VIEW = {"rotation": (35, 30, 0), "zoom": -90}
 TOP_DOWN_VIEW = {"rotation": (90, 0, 0), "zoom": -230}  # Shows the whole map, north up.
-WIDEST_STATUS = "0000.0 s   NS_YELLOW   000 vehicles   PAUSED"  # Sizes the background box.
+WIDEST_STATUS = "adaptive   0000.0 s   NS_YELLOW   000 vehicles   PAUSED"  # Sizes the background box.
 HELP = "space pause   r reset   1-4 speed   tab overview   right-drag orbit   scroll zoom"
 
 
 class Viewer(Entity):
     """Ursina calls update() every frame and input() on every key press."""
 
-    def __init__(self, world, seed: int):
+    def __init__(self, world, seed: int, strategy: str):
         super().__init__()
-        self.scene_view, self.seed = world, seed
-        self.simulation = Simulation(seed)
+        self.scene_view, self.seed, self.strategy = world, seed, strategy
+        self.simulation = Simulation(seed, strategy)
         self.playback = Playback()
 
         camera.clip_plane_near = 1  # A closer near plane makes the road flicker into the grass from afar.
@@ -49,7 +49,7 @@ class Viewer(Entity):
     def reset(self) -> None:
         """Start the same run again, keeping the current pause and speed."""
         self.scene_view.vehicles.clear()
-        self.simulation = Simulation(self.seed)
+        self.simulation = Simulation(self.seed, self.strategy)
 
     def _apply_view(self) -> None:
         view = TOP_DOWN_VIEW if self.top_down else ORBIT_VIEW
@@ -61,6 +61,6 @@ class Viewer(Entity):
         lights = self.simulation.lights
         state = "PAUSED" if self.playback.paused else f"x{self.playback.speed}"
         vehicles = len(self.simulation.traffic.vehicles)
-        status = f"{self.simulation.traffic.now_s:6.1f} s   {lights.phase.value}   {vehicles} vehicles   {state}"
+        status = f"{self.strategy}   {self.simulation.traffic.now_s:6.1f} s   {lights.phase.value}   {vehicles} vehicles   {state}"
         if status != self.status.text:  # Rebuilding text every frame is slow.
             self.status.text = status

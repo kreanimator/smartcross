@@ -16,9 +16,9 @@ from controller.traffic_lights import Approach
 from simulator.assets import extract_models, model_entity
 from simulator.cameras import build_cameras
 from simulator.lighting import add_sunlight
-from simulator.roads import build_roads
+from simulator.road_view import build_roads
 from simulator.signals import SignalHead
-from simulator.simulation import TIME_STEP_S, Simulation
+from simulator.simulation import STRATEGIES, TIME_STEP_S, Simulation
 from simulator.vehicles import VehicleViews
 from simulator.viewer import Viewer
 
@@ -60,6 +60,7 @@ def main() -> None:
     parser.add_argument("--frames", type=Path, help="save one PNG per camera here and exit")
     parser.add_argument("--seconds", type=float, default=60, help="simulated time before saving frames")
     parser.add_argument("--seed", type=int, default=42, help="seed for the arrival schedule")
+    parser.add_argument("--strategy", choices=STRATEGIES, default="fixed", help="how the lights decide")
     parser.add_argument("--egl", action="store_true", help="render without an X server")
     args = parser.parse_args()
 
@@ -71,7 +72,7 @@ def main() -> None:
     world = World(app)
 
     if args.frames:
-        simulation = Simulation(args.seed)
+        simulation = Simulation(args.seed, args.strategy)
         for _ in range(int(args.seconds / TIME_STEP_S)):
             simulation.step()
         world.show(simulation)
@@ -82,7 +83,7 @@ def main() -> None:
             Image.fromarray(frame_camera.frame()[:, :, ::-1]).save(args.frames / f"{name}.png")
         return
 
-    Viewer(world, args.seed)
+    Viewer(world, args.seed, args.strategy)
     app.run()
 
 
