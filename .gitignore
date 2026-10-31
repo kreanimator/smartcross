@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Unpacked from the zips in assets/models
+assets/models/extracted/
