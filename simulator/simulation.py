@@ -12,20 +12,31 @@ MAX_CATCH_UP_S = 0.25  # After a stall the simulation falls behind instead of ju
 STRATEGIES = {"fixed": FixedTimer, "adaptive": Adaptive}
 
 
+class PerfectSensor:
+    """Reads the simulator's exact state: the baseline to compare cameras with."""
+
+    def read(self, simulation: "Simulation"):
+        return observe(simulation.traffic) if simulation.steps % STEPS_PER_OBSERVATION == 0 else None
+
+
 class Simulation:
-    def __init__(self, seed: int = 42, strategy="fixed", arrivals_per_minute=ARRIVALS_PER_MINUTE):
-        """strategy is a name from STRATEGIES, or a strategy object."""
+    def __init__(self, seed: int = 42, strategy="fixed", arrivals_per_minute=ARRIVALS_PER_MINUTE, sensor=None):
+        """strategy is a name from STRATEGIES, or a strategy object.
+
+        sensor.read(simulation) runs after every step and returns an observation when one is due.
+        """
         self.traffic = Traffic(seed, arrivals_per_minute)
         self.controller = TrafficController(STRATEGIES[strategy]() if isinstance(strategy, str) else strategy)
-        self.lights = self.controller.update(0, observe(self.traffic))
+        self.sensor = sensor or PerfectSensor()
         self.steps = 0
+        self.lights = self.controller.lights.get_states()
+        self.lights = self.controller.update(0, self.sensor.read(self))
 
     def step(self) -> None:
         """Vehicles react to the lamps as shown, then the lights advance for the next step."""
         self.traffic.update(TIME_STEP_S, self.lights.lamps)
         self.steps += 1
-        observation = observe(self.traffic) if self.steps % STEPS_PER_OBSERVATION == 0 else None
-        self.lights = self.controller.update(TIME_STEP_S, observation)
+        self.lights = self.controller.update(TIME_STEP_S, self.sensor.read(self))
 
 
 class Playback:

@@ -138,3 +138,68 @@ def test_sampling_lands_on_simulation_steps(fps, steps):
 def test_sampling_rejects_rates_between_steps(fps):
     with pytest.raises(ValueError):
         steps_per_sample(fps)
+
+
+class StubDetector:
+    """Stands in for the model: it reports nothing and counts how often it is asked."""
+
+    def __init__(self):
+        self.calls = []
+
+    def detect(self, frames):
+        self.calls.append(frames)
+        return [[] for _ in frames]
+
+
+def test_camera_sensor_looks_five_times_a_second(scene_parts):
+    pytest.importorskip("ultralytics")
+    from vision.camera_sensor import CameraSensor
+
+    app, world = scene_parts
+    detector = StubDetector()
+    simulation = Simulation(1, "fixed", sensor=CameraSensor(app, world, detector))
+    assert len(detector.calls) == 1
+    for _ in range(120):
+        simulation.step()
+    world.vehicles.clear()
+    assert len(detector.calls) == 11
+    assert all(len(frames) == 4 and frames[0].shape == (HEIGHT, WIDTH, 3) for frames in detector.calls)
+
+
+def test_moving_cars_do_not_fill_the_transform_cache(scene_parts):
+    """A long run on cameras once ran the machine out of memory this way."""
+    pytest.importorskip("ultralytics")
+    from panda3d.core import TransformState
+
+    from vision.camera_sensor import CameraSensor
+
+    app, world = scene_parts
+    simulation = Simulation(1, "fixed", sensor=CameraSensor(app, world, StubDetector()))
+    for _ in range(30 * 60):
+        simulation.step()
+    before = TransformState.get_num_states()
+    for _ in range(30 * 60):
+        simulation.step()
+    growth = TransformState.get_num_states() - before
+    world.vehicles.clear()
+    assert growth < 10_000  # Measured: about 1,300 from cars on the road, over 100,000 with the leak.
+
+
+def test_controller_reads_only_what_the_detector_reports(scene_parts):
+    """With a blind detector the adaptive controller sees no traffic, whatever is on the road."""
+    pytest.importorskip("ultralytics")
+    from controller.adaptive import Adaptive
+    from vision.camera_sensor import CameraSensor
+
+    app, world = scene_parts
+    strategy = Adaptive()
+    seen = []
+    original = strategy.decide
+    strategy.decide = lambda observation, lights: seen.append(observation) or original(observation, lights)
+    simulation = Simulation(1, strategy, sensor=CameraSensor(app, world, StubDetector()))
+    for _ in range(60 * 60):
+        simulation.step()
+    world.vehicles.clear()
+    assert simulation.traffic.vehicles
+    assert seen and all(o.source == "cv" for o in seen)
+    assert all(a.queued == a.approaching == 0 for o in seen for a in o.approaches.values())
