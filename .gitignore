@@ -221,3 +221,8 @@ __marimo__/
 
 # Unpacked from the zips in assets/models
 assets/models/extracted/
+
+# Vision: model weights, YOLO settings and experiment output
+weights/
+runs/
+.ultralytics/
