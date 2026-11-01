@@ -1,7 +1,7 @@
 """Virtual cameras: each renders off-screen into an array the vision code can read."""
 
 import numpy as np
-from panda3d.core import Camera, PerspectiveLens, Texture
+from panda3d.core import Camera, PerspectiveLens, RenderState, Texture, TransformState
 from ursina import scene
 
 from simulator.camera_geometry import FOV, HEIGHT, NEAR_M, WIDTH, CameraSpec, camera_specs
@@ -29,6 +29,17 @@ class FrameCamera:
         """The last rendered frame as a top-down BGR array, the layout OpenCV expects."""
         pixels = np.frombuffer(self.texture.get_ram_image_as("BGR"), np.uint8)
         return pixels.reshape(HEIGHT, WIDTH, 3)[::-1].copy()
+
+
+def render(app) -> None:
+    """Draws one frame for a caller that drives rendering itself, without Panda3D's task loop.
+
+    That loop is what normally empties Panda3D's cache of transforms. Without it every new car
+    position stays cached for good, which cost about 1 GB per 1800 simulated seconds.
+    """
+    app.graphicsEngine.render_frame()
+    TransformState.garbage_collect()
+    RenderState.garbage_collect()
 
 
 def build_cameras(app) -> dict[str, FrameCamera]:

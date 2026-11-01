@@ -25,6 +25,7 @@ from PIL import Image
 from ursina import Ursina
 
 from controller.traffic_lights import Approach
+from simulator.cameras import render
 from simulator.overlay import annotate, mosaic
 from simulator.perfect_sensor import observe_lane
 from simulator.simulation import STRATEGIES, TIME_STEP_S, Simulation
@@ -109,7 +110,7 @@ def record(
                 for _ in range(every):
                     simulation.step()
             world.show(simulation)
-            app.graphicsEngine.render_frame()
+            render(app)
 
             sample = manifest_entry(index, simulation, world)
             samples.append(sample)
