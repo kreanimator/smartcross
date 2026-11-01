@@ -1,6 +1,6 @@
 """Draws the vehicles of the traffic simulation. All movement is decided in traffic.py."""
 
-from ursina import destroy
+from ursina import destroy, scene
 
 from simulator.assets import model_entity
 from simulator.roads import heading_degrees, lane_point
@@ -18,6 +18,11 @@ class VehicleViews:
         for entity in self.entities.values():
             destroy(entity)
         self.entities.clear()
+
+    def bounds(self, id: str) -> tuple[tuple, tuple]:
+        """The drawn vehicle's lowest and highest world corners. Cars only ever face along an axis."""
+        low, high = self.entities[id].get_tight_bounds(scene)
+        return tuple(low), tuple(high)
 
     def show(self, vehicles: list[Vehicle]) -> None:
         ids = {vehicle.id for vehicle in vehicles}

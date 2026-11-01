@@ -1,15 +1,12 @@
 """The intersection scene.
 
-    python -m simulator.world                      # open the interactive window
-    python -m simulator.world --frames DIR         # simulate, save one frame per camera, no window
-    python -m simulator.world --frames DIR --egl   # same, on a machine with no X server
+    python -m simulator.world    # open the interactive window
+
+simulator.record saves camera frames without a window.
 """
 
 import argparse
-from pathlib import Path
 
-from panda3d.core import loadPrcFileData
-from PIL import Image
 from ursina import Entity, Ursina
 
 from controller.traffic_lights import Approach
@@ -18,7 +15,7 @@ from simulator.cameras import build_cameras
 from simulator.lighting import add_sunlight
 from simulator.road_view import build_roads
 from simulator.signals import SignalHead
-from simulator.simulation import STRATEGIES, TIME_STEP_S, Simulation
+from simulator.simulation import STRATEGIES, Simulation
 from simulator.vehicles import VehicleViews
 from simulator.viewer import Viewer
 
@@ -34,7 +31,6 @@ BUILDINGS = [
     ("building-h", -34, -30, 0),
     ("building-n", -62, -32, 90),
 ]
-SHADOW_WARMUP_FRAMES = 2  # The shadow map is not ready until the second frame.
 
 
 class World:
@@ -57,33 +53,12 @@ class World:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--frames", type=Path, help="save one PNG per camera here and exit")
-    parser.add_argument("--seconds", type=float, default=60, help="simulated time before saving frames")
     parser.add_argument("--seed", type=int, default=42, help="seed for the arrival schedule")
     parser.add_argument("--strategy", choices=STRATEGIES, default="fixed", help="how the lights decide")
-    parser.add_argument("--egl", action="store_true", help="render without an X server")
     args = parser.parse_args()
 
-    if args.egl:
-        loadPrcFileData("", "load-display p3headlessgl")
-    window_type = "offscreen" if args.frames else "onscreen"
-    app = Ursina(window_type=window_type, size=(64, 64) if args.frames else (1280, 720), development_mode=False)
-
-    world = World(app)
-
-    if args.frames:
-        simulation = Simulation(args.seed, args.strategy)
-        for _ in range(int(args.seconds / TIME_STEP_S)):
-            simulation.step()
-        world.show(simulation)
-        args.frames.mkdir(parents=True, exist_ok=True)
-        for _ in range(SHADOW_WARMUP_FRAMES):
-            app.graphicsEngine.render_frame()
-        for name, frame_camera in world.cameras.items():
-            Image.fromarray(frame_camera.frame()[:, :, ::-1]).save(args.frames / f"{name}.png")
-        return
-
-    Viewer(world, args.seed, args.strategy)
+    app = Ursina(window_type="onscreen", size=(1280, 720), development_mode=False)
+    Viewer(World(app), args.seed, args.strategy)
     app.run()
 
 
