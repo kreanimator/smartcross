@@ -80,6 +80,7 @@ def encode_observation(observation: TrafficObservation, simulation_id: str) -> b
             "near_line": seen.near_line,
             "oldest_wait_s": seen.oldest_wait_s,
             "average_speed_mps": seen.average_speed_mps,
+            "available": seen.available,
         }
         for approach, seen in observation.approaches.items()
     }
@@ -99,12 +100,15 @@ def decode_observation(payload: bytes) -> Received:
         if not isinstance(seen, dict):
             raise InvalidMessage(f"{approach.value} must be an object")
         speed = seen.get("average_speed_mps")
+        if not isinstance(seen.get("available"), bool):
+            raise InvalidMessage("available must be true or false")
         decoded[approach] = ApproachObservation(
             queued=_count(seen.get("queued"), "queued"),
             approaching=_count(seen.get("approaching"), "approaching"),
             near_line=_count(seen.get("near_line"), "near_line"),
             oldest_wait_s=_number(seen.get("oldest_wait_s"), "oldest_wait_s"),
             average_speed_mps=None if speed is None else _number(speed, "average_speed_mps"),
+            available=seen["available"],
         )
     timestamp = message["timestamp_sim_s"]
     return Received(message["simulation_id"], timestamp, TrafficObservation(timestamp, source, decoded))

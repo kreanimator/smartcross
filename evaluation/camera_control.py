@@ -48,6 +48,8 @@ def run_on_cameras(app, world, detector, scenario: str, seed: int) -> tuple[Summ
         if simulation.steps % STEPS_PER_OBSERVATION == 0:
             truth = observe(simulation.traffic).approaches
             for approach, seen in simulation.sensor.seen.items():
+                if not seen.available:
+                    continue
                 errors.add("queued", seen.queued, truth[approach].queued)
                 errors.add("oldest_wait_s", seen.oldest_wait_s, truth[approach].oldest_wait_s)
     return summarize(simulation.traffic), errors, Counter(d.reason for d in strategy.decisions)

@@ -40,6 +40,7 @@ GREENS = {Phase.NS_GREEN, Phase.EW_GREEN}
 def observation(time_s=1.0):
     seen = {a: ApproachObservation(queued=2, approaching=1, near_line=1, oldest_wait_s=3.5) for a in Approach}
     seen[Approach.EAST] = ApproachObservation(average_speed_mps=4.25)
+    seen[Approach.WEST] = ApproachObservation(available=False)
     return TrafficObservation(time_s, "perfect_sensor", seen)
 
 
@@ -130,6 +131,8 @@ def test_phase_request_survives_the_round_trip():
         lambda m: m["approaches"]["north"].pop("near_line"),
         lambda m: m["approaches"]["north"].update(oldest_wait_s=-0.1),
         lambda m: m["approaches"]["north"].update(average_speed_mps="fast"),
+        lambda m: m["approaches"]["north"].update(available="yes"),
+        lambda m: m["approaches"]["north"].pop("available"),
     ],
 )
 def test_malformed_observations_are_rejected(change):

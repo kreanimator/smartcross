@@ -12,7 +12,7 @@ from controller.adaptive import (
     pressure,
 )
 from controller.observation import ApproachObservation, TrafficObservation
-from controller.traffic_lights import Approach, LightSnapshot, Phase
+from controller.traffic_lights import LAMPS, Approach, LightSnapshot, Phase
 from evaluation.compare import rates
 from evaluation.metrics import summarize
 from simulator.perfect_sensor import observe
@@ -236,3 +236,29 @@ def test_delay_includes_time_kept_out_of_a_full_lane():
 def test_simulation_logic_does_not_load_the_renderer():
     code = "import sys, evaluation.compare; sys.exit('panda3d' in sys.modules or 'ursina' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0
+
+
+def test_a_blind_approach_is_not_read_as_an_empty_road():
+    """With east and west unseen, their zeros must not hold north-south green for ever."""
+    strategy = Adaptive()
+    seen = {
+        Approach.NORTH: ApproachObservation(queued=3),
+        Approach.SOUTH: ApproachObservation(queued=3),
+        Approach.EAST: ApproachObservation(available=False),
+        Approach.WEST: ApproachObservation(available=False),
+    }
+    lights = LightSnapshot(Phase.NS_GREEN, dict(LAMPS[Phase.NS_GREEN]), 30.0)
+    assert strategy.decide(TrafficObservation(25.0, "cv", seen), lights) == "EW"
+    assert strategy.decisions[-1].reason == "camera unavailable"
+    assert strategy.decide(TrafficObservation(50.0, "cv", seen), lights) == "NS"
+
+
+def test_control_returns_once_every_approach_is_seen():
+    strategy = Adaptive()
+    blind = {approach: ApproachObservation(available=False) for approach in Approach}
+    clear = {approach: ApproachObservation() for approach in Approach}
+    clear[Approach.EAST] = ApproachObservation(queued=4)
+    lights = LightSnapshot(Phase.NS_GREEN, dict(LAMPS[Phase.NS_GREEN]), 30.0)
+    assert strategy.decide(TrafficObservation(0.0, "cv", blind), lights) == "NS"
+    assert strategy.decide(TrafficObservation(1.0, "cv", clear), lights) == "EW"
+    assert strategy.decisions[-1].reason == "queue cleared"

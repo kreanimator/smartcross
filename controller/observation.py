@@ -13,6 +13,7 @@ class ApproachObservation:
     near_line: int = 0  # How many of the approaching vehicles are close to the stop line.
     oldest_wait_s: float = 0.0
     average_speed_mps: float | None = None  # None when no vehicles are seen.
+    available: bool = True  # False means this approach cannot be seen, not that it is empty.
 
     def __post_init__(self):
         if min(self.queued, self.approaching, self.near_line, self.oldest_wait_s) < 0:

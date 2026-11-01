@@ -5,10 +5,13 @@ enough to be worth the time a switch loses, three checks can end that hold early
 other side doesn't pay for a long queue here: its longest wait, its queue length, and
 its total vehicles. Once this side has cleared, green moves to the other side as soon as
 it has more pressure. Green also ends at max_green_s if anyone at all is waiting.
+
+If any approach cannot be seen, its zeros mean nothing, so a fixed-time plan runs until it can.
 """
 
 from dataclasses import dataclass
 
+from controller.fixed_timer import FixedTimer
 from controller.observation import TrafficObservation
 from controller.traffic_lights import Approach, LightSnapshot, Phase, Timings
 
@@ -57,10 +60,14 @@ class Adaptive:
     def __init__(self, max_green_s: float = 45, timings: Timings = Timings()):
         self.max_green_s = max_green_s
         self.min_green_s = timings.min_green_s
+        self.fallback = FixedTimer(timings=timings)
         self.target = "NS"
         self.decisions: list[Decision] = []
 
     def decide(self, observation: TrafficObservation, lights: LightSnapshot) -> str:
+        if not all(seen.available for seen in observation.approaches.values()):
+            return self._without_full_view(observation, lights)
+
         green = GREEN_DIRECTION.get(lights.phase)
         if green is None or lights.seconds_in_phase < self.min_green_s:
             return self.target  # Nothing can change yet, so there is nothing to decide.
@@ -78,6 +85,21 @@ class Adaptive:
                 )
             )
         return self.target
+
+    def _without_full_view(self, observation: TrafficObservation, lights: LightSnapshot) -> str:
+        direction = self.fallback.decide(observation, lights)
+        if direction != self.target:
+            self.target = direction
+            self.decisions.append(
+                Decision(
+                    observation.timestamp_sim_s,
+                    direction,
+                    "camera unavailable",
+                    pressure(observation, "NS"),
+                    pressure(observation, "EW"),
+                )
+            )
+        return direction
 
     def _reason_to_switch(self, observation: TrafficObservation, green: str, seconds_green: float) -> str | None:
         other = OTHER[green]

@@ -185,6 +185,53 @@ def test_moving_cars_do_not_fill_the_transform_cache(scene_parts):
     assert growth < 10_000  # Measured: about 1,300 from cars on the road, over 100,000 with the leak.
 
 
+def run_with_fault(scene_parts, fault, seconds):
+    pytest.importorskip("ultralytics")
+    from vision.camera_sensor import CameraSensor
+
+    app, world = scene_parts
+    detector = StubDetector()
+    sensor = CameraSensor(app, world, detector, fault)
+    simulation = Simulation(1, "fixed", sensor=sensor)
+    for _ in range(round(seconds * 60)):
+        simulation.step()
+    world.vehicles.clear()
+    return sensor, detector
+
+
+def black_north(start_s, stop_s=1e9):
+    def fault(approach, frame, now_s):
+        return np.zeros_like(frame) if approach is Approach.NORTH and start_s <= now_s < stop_s else frame
+
+    return fault
+
+
+def test_a_dead_camera_is_reported_unavailable_and_kept_from_the_detector(scene_parts):
+    sensor, detector = run_with_fault(scene_parts, black_north(1), 4)
+    assert not sensor.seen[Approach.NORTH].available
+    assert all(sensor.seen[a].available for a in (Approach.SOUTH, Approach.EAST, Approach.WEST))
+    assert len(detector.calls[-1]) == 3
+    assert all(frame.std() > 0 for frame in detector.calls[-1])
+
+
+def test_a_missing_frame_counts_as_dead(scene_parts):
+    fault = lambda approach, frame, now_s: None if approach is Approach.EAST else frame
+    sensor, _ = run_with_fault(scene_parts, fault, 2)
+    assert not sensor.seen[Approach.EAST].available
+
+
+def test_a_brief_dropout_keeps_the_camera_available(scene_parts):
+    sensor, _ = run_with_fault(scene_parts, black_north(1, 1.5), 1.45)
+    assert sensor.seen[Approach.NORTH].available
+
+
+def test_a_camera_that_returns_is_trusted_again_after_a_second(scene_parts):
+    sensor, _ = run_with_fault(scene_parts, black_north(1, 3), 3.5)
+    assert not sensor.seen[Approach.NORTH].available
+    sensor, _ = run_with_fault(scene_parts, black_north(1, 3), 4.5)
+    assert sensor.seen[Approach.NORTH].available
+
+
 def test_controller_reads_only_what_the_detector_reports(scene_parts):
     """With a blind detector the adaptive controller sees no traffic, whatever is on the road."""
     pytest.importorskip("ultralytics")

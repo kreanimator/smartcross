@@ -50,3 +50,26 @@ def test_fixed_timer_run_gives_each_direction_green():
     controller = TrafficController(FixedTimer())
     phases = {controller.update(0.1, observation_at(i / 10)).phase for i in range(1000)}
     assert phases == set(Phase)
+
+
+def test_when_observations_stop_a_fixed_plan_takes_over():
+    controller = TrafficController(AlwaysFlips())
+    controller.update(0, observation_at(0))
+    greens = set()
+    for _ in range(int(120 / 0.05)):
+        snapshot = controller.update(0.05)
+        if snapshot.phase in (Phase.NS_GREEN, Phase.EW_GREEN):
+            greens.add(snapshot.phase)
+            assert snapshot.seconds_in_phase < 60
+    assert greens == {Phase.NS_GREEN, Phase.EW_GREEN}
+
+
+def test_a_short_gap_in_observations_changes_nothing():
+    strategy = AlwaysFlips()
+    controller = TrafficController(strategy)
+    controller.update(0, observation_at(0))
+    fallback_calls = []
+    controller.fallback.decide = lambda observation, lights: fallback_calls.append(1) or "NS"
+    for _ in range(int(4.9 / 0.05)):
+        controller.update(0.05)
+    assert fallback_calls == []
