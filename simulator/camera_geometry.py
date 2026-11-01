@@ -109,6 +109,16 @@ def camera_specs() -> dict[str, CameraSpec]:
     return specs
 
 
+def in_polygon(point, polygon) -> bool:
+    """Whether a pixel is inside a polygon, counting how many edges a ray from it crosses."""
+    x, y = point
+    inside = False
+    for (x0, y0), (x1, y1) in zip(polygon, [*polygon[1:], polygon[0]]):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
 def _unit(vector) -> np.ndarray:
     return vector / np.linalg.norm(vector)
 
