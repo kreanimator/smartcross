@@ -89,7 +89,7 @@ def test_request_cannot_cut_minimum_green_short():
 def test_green_holds_while_its_direction_is_requested():
     lights = lights_in("NS")
     lights.request_phase("NS")
-    lights.update(1000)
+    lights.update(TIMINGS.max_green_s - 1)
     assert phase_of(lights) is Phase.NS_GREEN
 
 
@@ -97,7 +97,7 @@ def test_latest_request_wins():
     lights = lights_in("NS")
     lights.request_phase("EW")
     lights.request_phase("NS")
-    lights.update(1000)
+    lights.update(TIMINGS.max_green_s - 1)
     assert phase_of(lights) is Phase.NS_GREEN
 
 
@@ -117,7 +117,7 @@ def test_invalid_request_is_rejected_and_ignored(direction):
     lights = lights_in("NS")
     with pytest.raises(ValueError):
         lights.request_phase(direction)
-    lights.update(1000)
+    lights.update(TIMINGS.max_green_s - 1)
     assert phase_of(lights) is Phase.NS_GREEN
 
 
@@ -181,3 +181,73 @@ def test_safety_holds_under_random_requests_and_dt(seed):
             assert (previous.phase, current.phase) in LEGAL_TRANSITIONS
             assert previous.seconds_in_phase + dt >= MIN_DURATION[previous.phase]
         previous = current
+
+
+def run_requesting(lights, direction, seconds, dt=0.1):
+    """Keeps asking for one direction, and returns how long each green lasted, in order."""
+    greens = []
+    for _ in range(round(seconds / dt)):
+        lights.request_phase(direction)
+        lights.update(dt)
+        state = lights.get_states()
+        if state.phase in (Phase.NS_GREEN, Phase.EW_GREEN):
+            if not greens or greens[-1][0] is not state.phase or state.seconds_in_phase == 0:
+                greens.append([state.phase, 0.0])
+            greens[-1][1] = state.seconds_in_phase
+    return greens
+
+
+def test_a_green_ends_at_its_limit_however_long_it_is_requested():
+    greens = run_requesting(TrafficLights(), "NS", 130)
+    assert greens[0][0] is Phase.NS_GREEN
+    assert greens[0][1] == pytest.approx(Timings().max_green_s, abs=0.2)
+
+
+def test_the_green_after_a_forced_end_goes_to_the_other_direction():
+    lights = TrafficLights()
+    greens = run_requesting(lights, "NS", 300)
+    assert [phase for phase, _ in greens[:3]] == [Phase.NS_GREEN, Phase.EW_GREEN, Phase.NS_GREEN]
+    assert greens[1][1] >= Timings().min_green_s - 0.2
+    assert lights.forced_ends == 2
+
+
+@pytest.mark.parametrize("stuck, starved", [("NS", Phase.EW_GREEN), ("EW", Phase.NS_GREEN)])
+def test_a_stuck_request_cannot_starve_either_direction(stuck, starved):
+    lights = TrafficLights()
+    longest_wait = wait = 0.0
+    for _ in range(round(1000 / 0.1)):
+        lights.request_phase(stuck)
+        lights.update(0.1)
+        wait = 0.0 if lights.get_states().phase is starved else wait + 0.1
+        longest_wait = max(longest_wait, wait)
+    timings = Timings()
+    clearance_s = timings.yellow_s + timings.all_red_s
+    assert longest_wait <= timings.max_green_s + 2 * clearance_s + 0.2
+
+
+def test_the_limit_does_not_touch_a_green_below_it():
+    lights = TrafficLights()
+    run_requesting(lights, "NS", 100)
+    assert lights.get_states().phase is Phase.NS_GREEN
+    assert lights.forced_ends == 0
+
+
+def test_a_normal_switch_at_the_limit_is_not_a_forced_end():
+    lights = TrafficLights()
+    run_requesting(lights, "NS", Timings().max_green_s - 1)
+    run_requesting(lights, "EW", 20)
+    assert lights.forced_ends == 0
+
+
+def test_reset_forgets_a_green_that_was_owed():
+    lights = TrafficLights()
+    run_requesting(lights, "NS", 123)
+    assert lights.get_states().phase is Phase.NS_YELLOW
+    lights.reset()
+    assert lights.forced_ends == 0
+    assert run_requesting(lights, "NS", 5)[0][0] is Phase.NS_GREEN
+
+
+def test_max_green_below_min_green_is_rejected():
+    with pytest.raises(ValueError):
+        Timings(min_green_s=30, max_green_s=20)

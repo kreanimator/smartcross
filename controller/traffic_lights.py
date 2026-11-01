@@ -2,6 +2,11 @@
 
 Strategies call request_phase() to say which direction they want. The machine
 gets there through yellow and all-red, and only once the timings allow it.
+
+A green also ends at max_green_s whatever is being requested, and the next green then goes to
+the other direction, so no strategy or message can starve a direction. The limit is a backstop
+set above anything normal control does: it is blind to traffic, so it may interrupt a busy
+green or serve an empty road.
 """
 
 import math
@@ -50,6 +55,7 @@ LAMPS = {
 
 GREEN_FOR = {"NS": Phase.NS_GREEN, "EW": Phase.EW_GREEN}
 YELLOW_AFTER = {Phase.NS_GREEN: Phase.NS_YELLOW, Phase.EW_GREEN: Phase.EW_YELLOW}
+OTHER_DIRECTION = {Phase.NS_GREEN: "EW", Phase.EW_GREEN: "NS"}
 
 
 @dataclass(frozen=True)
@@ -59,9 +65,10 @@ class Timings:
     min_green_s: float = 10
     yellow_s: float = 3
     all_red_s: float = 2
+    max_green_s: float = 120  # Normal control reached 100.9 s, on a road with nobody waiting.
 
     def __post_init__(self):
-        if self.min_green_s < 0 or self.yellow_s <= 0 or self.all_red_s <= 0:
+        if self.min_green_s < 0 or self.yellow_s <= 0 or self.all_red_s <= 0 or self.max_green_s < self.min_green_s:
             raise ValueError(f"invalid timings: {self}")
 
 
@@ -82,6 +89,8 @@ class TrafficLights:
         self._phase = Phase.ALL_RED
         self._seconds_in_phase = 0.0
         self._requested = None
+        self._owed = None  # The direction a green that hit max_green_s must hand over to.
+        self.forced_ends = 0
 
     def request_phase(self, direction: str) -> None:
         """Ask for 'NS' or 'EW' to be green. The latest request replaces earlier ones."""
@@ -110,10 +119,16 @@ class TrafficLights:
         phase, elapsed, timings = self._phase, self._seconds_in_phase, self.timings
 
         if phase is Phase.ALL_RED:
-            if self._requested and elapsed >= timings.all_red_s:
-                return GREEN_FOR[self._requested]
+            direction = self._owed or self._requested
+            if direction and elapsed >= timings.all_red_s:
+                self._owed = None
+                return GREEN_FOR[direction]
         elif phase in YELLOW_AFTER:
             if phase is not GREEN_FOR[self._requested] and elapsed >= timings.min_green_s:
+                return YELLOW_AFTER[phase]
+            if elapsed >= timings.max_green_s:
+                self._owed = OTHER_DIRECTION[phase]
+                self.forced_ends += 1
                 return YELLOW_AFTER[phase]
         elif elapsed >= timings.yellow_s:
             return Phase.ALL_RED

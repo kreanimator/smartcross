@@ -73,3 +73,47 @@ def test_a_short_gap_in_observations_changes_nothing():
     for _ in range(int(4.9 / 0.05)):
         controller.update(0.05)
     assert fallback_calls == []
+
+
+class Stuck:
+    def __init__(self, direction="NS"):
+        self.direction = direction
+
+    def decide(self, observation, lights):
+        return self.direction
+
+
+def run_controller(controller, seconds, start_s=0.0, dt=0.05):
+    """Observations arrive once a second. Returns the phases shown, in order, without repeats."""
+    phases = []
+    for step in range(round(seconds / dt)):
+        now_s = start_s + step * dt
+        observation = observation_at(now_s) if step % 20 == 0 else None
+        phase = controller.update(dt, observation).phase
+        if not phases or phases[-1] is not phase:
+            phases.append(phase)
+    return phases
+
+
+def test_a_stuck_strategy_loses_control_to_the_fixed_plan():
+    controller = TrafficController(Stuck())
+    run_controller(controller, 130)
+    assert controller.lights.forced_ends == 1
+    phases = run_controller(controller, 200, start_s=130)
+    assert controller.lights.forced_ends == 1  # The fixed plan never reaches the limit.
+    assert phases.count(Phase.NS_GREEN) >= 3
+    assert phases.count(Phase.EW_GREEN) >= 3
+
+
+def test_a_strategy_regains_control_by_asking_for_something_else():
+    strategy = Stuck()
+    controller = TrafficController(strategy)
+    run_controller(controller, 130)
+    assert controller.distrusted_request == "NS"
+    strategy.direction = "EW"
+    run_controller(controller, 40, start_s=130)
+    assert controller.distrusted_request is None
+    assert controller.lights.get_states().phase is Phase.EW_GREEN
+    strategy.direction = "NS"
+    run_controller(controller, 40, start_s=170)
+    assert controller.lights.get_states().phase is Phase.NS_GREEN

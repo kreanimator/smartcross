@@ -334,3 +334,24 @@ def test_a_reply_that_arrives_too_late_is_not_used():
     assert strategy.last_request is None
     assert strategy.guard.rejected["stale"] == 1
     assert strategy.mode == "fallback"
+
+
+class StuckController:
+    """Keeps answering, but only ever asks for north-south."""
+
+    def decide(self, observation, lights):
+        return "NS"
+
+
+def test_a_controller_that_answers_but_is_stuck_cannot_starve_a_direction():
+    broker = InMemoryBroker()
+    ControllerService(InMemoryBus(broker), RUN, StuckController())
+    strategy = RemoteStrategy(InMemoryBus(broker), RUN, reply_timeout_s=0, recovery_wait_s=0)
+    simulation = Simulation(1, strategy)
+    watch = SafetyWatch(simulation)
+    watch.run(600)
+    assert strategy.mode == "controller"  # The fallback plan never sees this: messages are fine.
+    assert simulation.controller.lights.forced_ends == 1  # After that, the fixed plan is in charge.
+    assert simulation.traffic.lanes[Approach.EAST].completed
+    assert watch.greens > 10
+    assert watch.longest_green_s < Timings().max_green_s + 0.1
