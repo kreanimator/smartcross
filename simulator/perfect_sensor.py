@@ -1,9 +1,12 @@
-"""Reads the simulator's exact state as an observation: the baseline to compare cameras with."""
+"""Reads the simulator's exact state: only for tests and for scoring vision against the truth.
 
-from controller.observation import ApproachObservation, TrafficObservation
+Nothing that runs the intersection may import this. Live control sees traffic through the
+cameras alone, and tests/test_vision_only.py checks that it stays that way.
+"""
+
+from controller.observation import NEAR_LINE_M, ApproachObservation, TrafficObservation
+from simulator.simulation import STEPS_PER_OBSERVATION
 from simulator.traffic import STOPPED_SPEED, Lane, Traffic
-
-NEAR_LINE_M = 30  # A moving vehicle this close to its stop line reaches it within seconds.
 
 
 def observe_lane(lane: Lane) -> ApproachObservation:
@@ -24,3 +27,8 @@ def observe_lane(lane: Lane) -> ApproachObservation:
 def observe(traffic: Traffic) -> TrafficObservation:
     approaches = {approach: observe_lane(lane) for approach, lane in traffic.lanes.items()}
     return TrafficObservation(traffic.now_s, "perfect_sensor", approaches)
+
+
+class PerfectSensor:
+    def read(self, simulation):
+        return observe(simulation.traffic) if simulation.steps % STEPS_PER_OBSERVATION == 0 else None

@@ -16,7 +16,7 @@ from controller.observation import ApproachObservation, TrafficObservation
 from controller.traffic_lights import LAMPS, Approach, LightSnapshot, Phase
 from evaluation.compare import rates
 from evaluation.metrics import summarize
-from simulator.perfect_sensor import observe
+from simulator.perfect_sensor import PerfectSensor, observe
 from simulator.simulation import TIME_STEP_S, Simulation
 from simulator.traffic import STOPPED_SPEED, Traffic, Vehicle
 
@@ -189,7 +189,7 @@ def run(simulation, seconds):
 
 
 def test_quiet_road_is_not_starved_by_a_busy_one():
-    simulation = run(Simulation(1, "adaptive", rates(20, 1)), 1200)
+    simulation = run(Simulation(1, "adaptive", rates(20, 1), sensor=PerfectSensor()), 1200)
     east_west = [v for a in (Approach.EAST, Approach.WEST) for v in simulation.traffic.lanes[a].completed]
     assert len(east_west) > 20
     # Max green, then clearance: nobody on the quiet road should wait much beyond that.
@@ -197,7 +197,7 @@ def test_quiet_road_is_not_starved_by_a_busy_one():
 
 
 def test_every_green_respects_max_green_when_both_sides_are_busy():
-    simulation = Simulation(2, "adaptive", rates(25, 25))
+    simulation = Simulation(2, "adaptive", rates(25, 25), sensor=PerfectSensor())
     longest = 0.0
     for _ in range(int(1200 / TIME_STEP_S)):
         simulation.step()
@@ -208,13 +208,13 @@ def test_every_green_respects_max_green_when_both_sides_are_busy():
 
 
 def test_adaptive_run_is_reproducible_and_logs_switches():
-    first, second = run(Simulation(9, "adaptive"), 300), run(Simulation(9, "adaptive"), 300)
+    first, second = run(Simulation(9, "adaptive", sensor=PerfectSensor()), 300), run(Simulation(9, "adaptive", sensor=PerfectSensor()), 300)
     assert first.controller.strategy.decisions == second.controller.strategy.decisions
     assert first.controller.strategy.decisions
 
 
 def test_both_strategies_get_identical_arrivals():
-    fixed, adaptive = run(Simulation(4, "fixed"), 600), run(Simulation(4, "adaptive"), 600)
+    fixed, adaptive = run(Simulation(4, "fixed", sensor=PerfectSensor()), 600), run(Simulation(4, "adaptive", sensor=PerfectSensor()), 600)
     for approach in Approach:
         fixed_lane, adaptive_lane = fixed.traffic.lanes[approach], adaptive.traffic.lanes[approach]
         assert fixed_lane.spawned == adaptive_lane.spawned
@@ -222,12 +222,12 @@ def test_both_strategies_get_identical_arrivals():
 
 
 def test_time_lost_counts_slowing_down_as_well_as_stopping():
-    summary = summarize(run(Simulation(1, "fixed"), 600).traffic)
+    summary = summarize(run(Simulation(1, "fixed", sensor=PerfectSensor()), 600).traffic)
     assert summary.mean_time_lost_s > summary.mean_delay_s
 
 
 def test_delay_includes_time_kept_out_of_a_full_lane():
-    simulation = run(Simulation(1, "fixed", rates(40, 40)), 600)
+    simulation = run(Simulation(1, "fixed", rates(40, 40), sensor=PerfectSensor()), 600)
     summary = summarize(simulation.traffic)
     late = [v for lane in simulation.traffic.lanes.values() for v in lane.completed if v.entry_delay_s > 0]
     assert late
@@ -293,7 +293,7 @@ def test_max_green_still_ends_a_saturated_green():
 
 
 def test_overload_keeps_greens_long_instead_of_spending_them_on_switching():
-    simulation = Simulation(2, "adaptive", rates(14, 14))
+    simulation = Simulation(2, "adaptive", rates(14, 14), sensor=PerfectSensor())
     switches = 0
     before = simulation.lights.phase
     for _ in range(int(1200 / TIME_STEP_S)):

@@ -63,6 +63,9 @@ class CameraSensor:
         self.analyzers = {approach: ApproachAnalyzer(specs[approach.value], approach) for approach in Approach}
         self.health = {approach: CameraHealth() for approach in Approach}
         self.seen = {approach: ApproachObservation() for approach in Approach}
+        self.looks = 0
+        self.last_frames = {}
+        self.last_tracks = {}
 
     def read(self, simulation) -> TrafficObservation | None:
         if simulation.steps % STEPS_PER_FRAME == 0:
@@ -84,9 +87,12 @@ class CameraSensor:
         for approach in Approach:
             # Trackers and analyzers run on every frame, so tracks age out during an outage.
             tracks = self.trackers[approach].update(detections.get(approach, []))
+            self.last_tracks[approach] = tracks
             seen = self.analyzers[approach].update(now_s, tracks)
             available = self.health[approach].update(approach in detections)
             if not available:
                 self.seen[approach] = ApproachObservation(available=False)
             elif approach in detections:
                 self.seen[approach] = seen
+        self.last_frames = frames
+        self.looks += 1

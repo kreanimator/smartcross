@@ -1,11 +1,12 @@
 """The intersection scene.
 
-    python -m simulator.world    # open the interactive window
+    python -m simulator.world    # open the live window: traffic is seen by the cameras alone
 
 simulator.record saves camera frames without a window.
 """
 
 import argparse
+from pathlib import Path
 
 from ursina import Entity, Ursina
 
@@ -17,8 +18,8 @@ from simulator.road_view import build_roads
 from simulator.signals import SignalHead
 from simulator.simulation import STRATEGIES, Simulation
 from simulator.vehicles import VehicleViews
-from simulator.viewer import Viewer
 
+WEIGHTS = Path(__file__).parent.parent / "weights" / "smartcross_vehicle.pt"
 BUILDING_SCALE = 10
 # Model, x, z, rotation_y. Set back from the roads so they never block a camera.
 BUILDINGS = [
@@ -54,11 +55,19 @@ class World:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=42, help="seed for the arrival schedule")
-    parser.add_argument("--strategy", choices=STRATEGIES, default="fixed", help="how the lights decide")
+    parser.add_argument("--strategy", choices=STRATEGIES, default="adaptive", help="how the lights decide")
+    parser.add_argument("--weights", type=Path, default=WEIGHTS, help="the fine-tuned detector")
     args = parser.parse_args()
+    if not args.weights.exists():
+        parser.error(f"no detector at {args.weights}: train one with vision.dataset and vision.train")
 
-    app = Ursina(window_type="onscreen", size=(1280, 720), development_mode=False)
-    Viewer(World(app), args.seed, args.strategy)
+    from simulator.viewer import Viewer
+    from vision.detector import VehicleDetector
+    from vision.tracker import MIN_DETECTION_CONFIDENCE
+
+    detector = VehicleDetector(args.weights, MIN_DETECTION_CONFIDENCE)
+    app = Ursina(window_type="onscreen", size=(1600, 900), development_mode=False)
+    Viewer(app, World(app), detector, args.seed, args.strategy)
     app.run()
 
 

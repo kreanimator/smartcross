@@ -16,6 +16,7 @@ import numpy as np
 from controller.fixed_timer import FixedTimer
 from controller.traffic_lights import Approach
 from evaluation.metrics import Summary, summarize
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import TIME_STEP_S, Simulation
 
 DURATION_S = 1800
@@ -62,7 +63,7 @@ def make_strategy(name: str, scenario: str):
 
 def run(job: tuple[str, str, int]) -> Summary:
     scenario, strategy, seed = job
-    simulation = Simulation(seed, make_strategy(strategy, scenario), SCENARIOS[scenario])
+    simulation = Simulation(seed, make_strategy(strategy, scenario), SCENARIOS[scenario], sensor=PerfectSensor())
     for _ in range(int(DURATION_S / TIME_STEP_S)):
         simulation.step()
     return summarize(simulation.traffic)
@@ -97,7 +98,7 @@ def print_comparison(results: dict[tuple[str, str, int], Summary], seeds: range)
 
 
 def print_decisions(seed: int) -> None:
-    simulation = Simulation(seed, "adaptive", SCENARIOS["default"])
+    simulation = Simulation(seed, "adaptive", SCENARIOS["default"], sensor=PerfectSensor())
     for _ in range(int(300 / TIME_STEP_S)):
         simulation.step()
     for d in simulation.controller.strategy.decisions:

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from controller.traffic_lights import Approach
 
+NEAR_LINE_M = 30  # A moving vehicle this close to its stop line reaches it within seconds.
+
 
 @dataclass(frozen=True)
 class ApproachObservation:

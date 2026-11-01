@@ -24,6 +24,7 @@ from messaging.schemas import (
     encode_phase_request,
 )
 from messaging.services import STALE_AFTER_S, ControllerService, MessageGuard, RemoteStrategy
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import TIME_STEP_S, Simulation
 
 RUN = "test-run"
@@ -61,7 +62,7 @@ def connected(seed=1, deliver=None):
     strategy = RemoteStrategy(InMemoryBus(broker), RUN, reply_timeout_s=0, recovery_wait_s=0)
     if deliver:
         broker.deliver = deliver
-    return broker, service, strategy, Simulation(seed, strategy)
+    return broker, service, strategy, Simulation(seed, strategy, sensor=PerfectSensor())
 
 
 class SafetyWatch:
@@ -199,7 +200,7 @@ def test_guard_rejects_stale_and_future_messages():
 def test_a_healthy_bus_changes_nothing():
     """The whole point of the design: MQTT adds no change to the control rules."""
     _, _, strategy, simulation = connected(seed=3)
-    direct = Simulation(3, Adaptive())
+    direct = Simulation(3, Adaptive(), sensor=PerfectSensor())
     for _ in range(round(600 / TIME_STEP_S)):
         simulation.step()
         direct.step()
@@ -210,7 +211,7 @@ def test_a_healthy_bus_changes_nothing():
 
 def test_with_no_controller_the_lights_run_the_fallback_plan():
     strategy = RemoteStrategy(InMemoryBus(InMemoryBroker()), RUN, reply_timeout_s=0, recovery_wait_s=0)
-    watch = SafetyWatch(Simulation(1, strategy))
+    watch = SafetyWatch(Simulation(1, strategy, sensor=PerfectSensor()))
     watch.run(300)
     assert [mode for _, mode in strategy.mode_changes] == ["fallback"]
     assert watch.greens >= 2 * 300 // 50
@@ -299,7 +300,7 @@ def test_a_flood_of_conflicting_requests_cannot_beat_the_state_machine():
 
 def test_garbage_on_every_topic_changes_nothing():
     broker, service, strategy, simulation = connected(seed=2)
-    direct = Simulation(2, Adaptive())
+    direct = Simulation(2, Adaptive(), sensor=PerfectSensor())
     bus = InMemoryBus(broker)
     for _ in range(round(120 / TIME_STEP_S)):
         for topic in list(broker.subscribers):
@@ -314,7 +315,7 @@ def test_garbage_on_every_topic_changes_nothing():
 
 def test_messages_from_another_run_are_ignored():
     broker, _, strategy, simulation = connected(seed=2)
-    direct = Simulation(2, Adaptive())
+    direct = Simulation(2, Adaptive(), sensor=PerfectSensor())
     bus = InMemoryBus(broker)
     for index in range(round(60 / TIME_STEP_S)):
         request = PhaseRequest(simulation.traffic.now_s + TIME_STEP_S, "EW", index)
@@ -347,7 +348,7 @@ def test_a_controller_that_answers_but_is_stuck_cannot_starve_a_direction():
     broker = InMemoryBroker()
     ControllerService(InMemoryBus(broker), RUN, StuckController())
     strategy = RemoteStrategy(InMemoryBus(broker), RUN, reply_timeout_s=0, recovery_wait_s=0)
-    simulation = Simulation(1, strategy)
+    simulation = Simulation(1, strategy, sensor=PerfectSensor())
     watch = SafetyWatch(simulation)
     watch.run(600)
     assert strategy.mode == "controller"  # The fallback plan never sees this: messages are fine.

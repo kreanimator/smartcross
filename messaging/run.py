@@ -4,6 +4,8 @@
     python -m messaging.run controller --simulation-id demo
     python -m messaging.run simulation --simulation-id demo --seed 42 --seconds 600
 
+The simulation sees traffic through its cameras alone.
+
 Start the controller first. If it is missing or the broker goes down, the simulation falls back
 to its local fixed-time plan and reports when it did.
 """
@@ -17,6 +19,8 @@ from evaluation.metrics import summarize
 from messaging.bus import MqttBus
 from messaging.services import ControllerService, RemoteStrategy
 from simulator.simulation import TIME_STEP_S, Simulation
+
+WEIGHTS = "weights/smartcross_vehicle.pt"
 
 
 def run_controller(args) -> None:
@@ -36,8 +40,18 @@ def run_simulation(args) -> None:
     bus = MqttBus("simulation", args.host, args.port)
     if not bus.wait_connected():
         print("no broker yet: starting on the fallback plan")
+    from ursina import Ursina
+
+    from simulator.world import World
+    from vision.camera_sensor import CameraSensor
+    from vision.detector import VehicleDetector
+    from vision.tracker import MIN_DETECTION_CONFIDENCE
+
+    app = Ursina(window_type="offscreen", size=(64, 64), development_mode=False)
+    world = World(app)
+    detector = VehicleDetector(args.weights, MIN_DETECTION_CONFIDENCE)
     strategy = RemoteStrategy(bus, args.simulation_id)
-    simulation = Simulation(args.seed, strategy)
+    simulation = Simulation(args.seed, strategy, sensor=CameraSensor(app, world, detector))
     for _ in range(int(args.seconds / TIME_STEP_S)):
         simulation.step()
     bus.close()
@@ -54,6 +68,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=1883)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--seconds", type=float, default=600, help="simulated seconds")
+    parser.add_argument("--weights", default=WEIGHTS, help="the fine-tuned detector")
     args = parser.parse_args()
     (run_controller if args.role == "controller" else run_simulation)(args)
 

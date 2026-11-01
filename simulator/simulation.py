@@ -3,7 +3,6 @@
 from controller.adaptive import Adaptive
 from controller.controller import TrafficController
 from controller.fixed_timer import FixedTimer
-from simulator.perfect_sensor import observe
 from simulator.traffic import ARRIVALS_PER_MINUTE, Traffic
 
 TIME_STEP_S = 1 / 60
@@ -12,22 +11,16 @@ MAX_CATCH_UP_S = 0.25  # After a stall the simulation falls behind instead of ju
 STRATEGIES = {"fixed": FixedTimer, "adaptive": Adaptive}
 
 
-class PerfectSensor:
-    """Reads the simulator's exact state: the baseline to compare cameras with."""
-
-    def read(self, simulation: "Simulation"):
-        return observe(simulation.traffic) if simulation.steps % STEPS_PER_OBSERVATION == 0 else None
-
-
 class Simulation:
-    def __init__(self, seed: int = 42, strategy="fixed", arrivals_per_minute=ARRIVALS_PER_MINUTE, sensor=None):
+    def __init__(self, seed: int = 42, strategy="fixed", arrivals_per_minute=ARRIVALS_PER_MINUTE, *, sensor):
         """strategy is a name from STRATEGIES, or a strategy object.
 
         sensor.read(simulation) runs after every step and returns an observation when one is due.
+        It has no default, so traffic can never reach the controller without someone choosing how.
         """
         self.traffic = Traffic(seed, arrivals_per_minute)
         self.controller = TrafficController(STRATEGIES[strategy]() if isinstance(strategy, str) else strategy)
-        self.sensor = sensor or PerfectSensor()
+        self.sensor = sensor
         self.steps = 0
         self.lights = self.controller.lights.get_states()
         self.lights = self.controller.update(0, self.sensor.read(self))

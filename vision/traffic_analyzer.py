@@ -11,10 +11,9 @@ part of the observation, because the controller does not act on them.
 from collections import deque
 from dataclasses import dataclass, field
 
-from controller.observation import ApproachObservation, TrafficObservation
+from controller.observation import NEAR_LINE_M, ApproachObservation, TrafficObservation
 from controller.traffic_lights import Approach
 from simulator.camera_geometry import CameraSpec, in_polygon
-from simulator.perfect_sensor import NEAR_LINE_M
 from simulator.roads import distance_to_line
 from simulator.traffic import STOPPED_SPEED
 from vision.tracker import Track

@@ -15,6 +15,7 @@ from evaluation.metrics import summarize  # noqa: E402
 from messaging.bus import MqttBus  # noqa: E402
 from messaging.schemas import TOPIC_HEALTH  # noqa: E402
 from messaging.services import ControllerService, RemoteStrategy  # noqa: E402
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import TIME_STEP_S, Simulation  # noqa: E402
 
 IMAGE = "eclipse-mosquitto:2.0.21"
@@ -70,8 +71,8 @@ def linked(broker):
 def test_a_run_over_a_real_broker_matches_the_direct_run_exactly(linked):
     _, _, service, bus, _ = linked
     strategy = RemoteStrategy(bus, RUN)
-    simulation = Simulation(5, strategy)
-    direct = Simulation(5, Adaptive())
+    simulation = Simulation(5, strategy, sensor=PerfectSensor())
+    direct = Simulation(5, Adaptive(), sensor=PerfectSensor())
     for _ in range(round(300 / TIME_STEP_S)):
         simulation.step()
         direct.step()
@@ -84,7 +85,7 @@ def test_a_run_over_a_real_broker_matches_the_direct_run_exactly(linked):
 def test_losing_the_broker_stays_safe_and_control_comes_back(linked):
     container, port, _, bus, controller_bus = linked
     strategy = RemoteStrategy(bus, RUN, reply_timeout_s=2)
-    simulation = Simulation(6, strategy)
+    simulation = Simulation(6, strategy, sensor=PerfectSensor())
 
     def advance(seconds):
         phases = set()

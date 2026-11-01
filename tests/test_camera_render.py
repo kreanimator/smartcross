@@ -9,6 +9,7 @@ from PIL import Image
 from controller.traffic_lights import Approach
 from simulator.camera_geometry import HEIGHT, OVERHEAD, WIDTH
 from simulator.record import record, steps_per_sample
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import Simulation
 from simulator.traffic import Vehicle
 
@@ -122,7 +123,7 @@ def test_recorded_truth_matches_a_run_nobody_watched(scene_parts, tmp_path):
     samples = record(app, world, tmp_path, seed=8, seconds=10, fps=1)
     world.vehicles.clear()
 
-    unwatched = Simulation(8)
+    unwatched = Simulation(8, sensor=PerfectSensor())
     for _ in range(600):
         unwatched.step()
     expected = {v.id: round(v.distance, 3) for v in unwatched.traffic.vehicles}

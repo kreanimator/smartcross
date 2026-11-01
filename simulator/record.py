@@ -27,7 +27,7 @@ from ursina import Ursina
 from controller.traffic_lights import Approach
 from simulator.cameras import render
 from simulator.overlay import annotate, mosaic
-from simulator.perfect_sensor import observe_lane
+from simulator.perfect_sensor import PerfectSensor, observe_lane
 from simulator.simulation import STRATEGIES, TIME_STEP_S, Simulation
 from simulator.traffic import ARRIVALS_PER_MINUTE
 from simulator.world import World
@@ -97,7 +97,7 @@ def record(
         )
     )
 
-    simulation = Simulation(seed, strategy, arrivals)
+    simulation = Simulation(seed, strategy, arrivals, sensor=PerfectSensor())
     for _ in range(round(start / TIME_STEP_S)):
         simulation.step()
     for _ in range(SHADOW_WARMUP_FRAMES):

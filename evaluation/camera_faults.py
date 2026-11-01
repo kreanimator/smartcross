@@ -41,7 +41,7 @@ def run(app, world, detector, mode: str, args, seed: int):
     world.vehicles.clear()
     sensor_type = IgnoresOutages if mode == "ignored" else CameraSensor
     strategy = Adaptive()
-    simulation = Simulation(seed, strategy, SCENARIOS[args.scenario], sensor_type(app, world, detector, fault))
+    simulation = Simulation(seed, strategy, SCENARIOS[args.scenario], sensor=sensor_type(app, world, detector, fault))
     longest_green_s = 0.0
     for _ in range(int(args.seconds / TIME_STEP_S)):
         simulation.step()

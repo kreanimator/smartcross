@@ -2,6 +2,7 @@ import pytest
 
 from controller.traffic_lights import Approach, Lamp
 from simulator.roads import STOP_LINE
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import TIME_STEP_S, Simulation
 from simulator.traffic import (
     EXIT_DISTANCE,
@@ -115,7 +116,7 @@ def state_of(simulation):
 
 
 def test_same_seed_gives_the_same_run_and_another_seed_does_not():
-    first, second, other = Simulation(seed=7), Simulation(seed=7), Simulation(seed=8)
+    first, second, other = Simulation(seed=7, sensor=PerfectSensor()), Simulation(seed=7, sensor=PerfectSensor()), Simulation(seed=8, sensor=PerfectSensor())
     for _ in range(seconds(120)):
         first.step()
         second.step()
@@ -127,7 +128,7 @@ def test_same_seed_gives_the_same_run_and_another_seed_does_not():
 @pytest.mark.parametrize("strategy", ["fixed", "adaptive"])
 @pytest.mark.parametrize("seed", range(5))
 def test_safety_over_a_long_run(seed, strategy):
-    simulation = Simulation(seed, strategy)
+    simulation = Simulation(seed, strategy, sensor=PerfectSensor())
     before = {}
     crossed = 0
 

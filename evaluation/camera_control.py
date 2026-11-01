@@ -41,7 +41,7 @@ def run_on_cameras(app, world, detector, scenario: str, seed: int) -> tuple[Summ
 
     world.vehicles.clear()
     strategy = Adaptive()
-    simulation = Simulation(seed, strategy, SCENARIOS[scenario], CameraSensor(app, world, detector))
+    simulation = Simulation(seed, strategy, SCENARIOS[scenario], sensor=CameraSensor(app, world, detector))
     errors = Errors()
     for _ in range(int(DURATION_S / TIME_STEP_S)):
         simulation.step()

@@ -1,5 +1,6 @@
 import pytest
 
+from simulator.perfect_sensor import PerfectSensor
 from simulator.simulation import MAX_CATCH_UP_S, TIME_STEP_S, Playback, Simulation
 
 FRAME_S = 1 / 60
@@ -38,11 +39,11 @@ def test_stall_does_not_cause_a_jump():
 
 
 def test_run_is_the_same_however_it_is_watched():
-    straight = Simulation(seed=5)
+    straight = Simulation(seed=5, sensor=PerfectSensor())
     for _ in range(6000):
         straight.step()
 
-    watched = Simulation(seed=5)
+    watched = Simulation(seed=5, sensor=PerfectSensor())
     playback = Playback()
     steps = 0
     pattern = [(1, False), (8, False), (2, True), (4, False)]
@@ -59,10 +60,10 @@ def test_run_is_the_same_however_it_is_watched():
 
 
 def test_a_new_simulation_shares_nothing_with_an_earlier_one():
-    earlier = Simulation(seed=5)
+    earlier = Simulation(seed=5, sensor=PerfectSensor())
     for _ in range(3000):
         earlier.step()
-    restarted, untouched = Simulation(seed=5), Simulation(seed=5)
+    restarted, untouched = Simulation(seed=5, sensor=PerfectSensor()), Simulation(seed=5, sensor=PerfectSensor())
     for _ in range(600):
         restarted.step()
         untouched.step()
