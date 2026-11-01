@@ -3,7 +3,7 @@ import pytest
 pytest.importorskip("ultralytics")
 
 from controller.traffic_lights import Approach  # noqa: E402
-from evaluation.perception import Errors, queue_band  # noqa: E402
+from evaluation.perception import Errors, crossing_report, match_crossings, queue_band, true_crossings  # noqa: E402
 from simulator.camera_geometry import camera_specs  # noqa: E402
 from simulator.roads import distance_to_line, lane_point  # noqa: E402
 from vision.tracker import Track  # noqa: E402
@@ -122,3 +122,64 @@ def test_queue_bands_cover_every_length():
     assert queue_band(0) == (0, 0)
     assert queue_band(5) == (4, 6)
     assert queue_band(40) == (10, 1000)
+
+
+def crossings_for(approach, distances):
+    analyzer = ApproachAnalyzer(SPECS[approach.value], approach)
+    drive(approach, {1: distances}, analyzer)
+    return analyzer.crossings
+
+
+@pytest.mark.parametrize("approach", list(Approach), ids=lambda a: a.value)
+def test_a_car_driving_over_the_line_crosses_once(approach):
+    crossings = crossings_for(approach, [8, 5.4, 2.8, 0.2, -2.4, -4.0])
+    assert len(crossings) == 1
+    assert crossings[0].track_id == 1
+    assert crossings[0].time_s == pytest.approx(3 / FPS + 0.2 / 2.6 / FPS, abs=0.01)
+    assert crossings[0].speed_mps == pytest.approx(13, abs=0.5)
+
+
+def test_a_car_halted_short_of_the_line_does_not_cross():
+    assert crossings_for(Approach.NORTH, [3, 1.5, 0.5, 0.5, 0.4, 0.6, 0.5]) == []
+
+
+def test_a_slight_overshoot_is_not_a_crossing():
+    assert crossings_for(Approach.NORTH, [1, 0.5, -0.5, -0.6, -0.5]) == []
+
+
+def test_a_track_never_followed_in_the_lane_does_not_cross():
+    assert crossings_for(Approach.NORTH, [-2, -3, -4]) == []
+
+
+def test_true_crossings_are_read_from_the_recorded_distances():
+    samples = [
+        {"timestamp_sim_s": t, "vehicles": [{"id": "n1", "approach": "north", "distance_m": d}]}
+        for t, d in ((0.0, 3.0), (1.0, 1.0), (2.0, -1.0), (3.0, -3.0))
+    ]
+    assert true_crossings(samples, "north") == [1.5]
+    assert true_crossings(samples, "east") == []
+
+
+def test_matching_counts_misses_and_false_crossings():
+    errors, missed, false = match_crossings([1.1, 5.0, 9.0], [1.0, 3.0, 9.2], 0.5)
+    assert errors == pytest.approx([0.1, -0.2])
+    assert (missed, false) == (1, 1)
+
+
+def test_one_true_crossing_cannot_match_twice():
+    errors, missed, false = match_crossings([1.0, 1.1], [1.0], 0.5)
+    assert (len(errors), missed, false) == (1, 0, 1)
+
+
+def test_crossings_on_red_are_counted_from_the_recorded_lamps():
+    samples = [
+        {
+            "timestamp_sim_s": t,
+            "lamps": {"north": lamp},
+            "vehicles": [{"id": "n1", "approach": "north", "distance_m": d}],
+        }
+        for t, d, lamp in ((0.0, 1.0, "GREEN"), (1.0, -1.0, "RED"), (2.0, -3.0, "RED"))
+    ]
+    report = crossing_report("north", samples, [0.5, 1.5], 0.0, 2.0)
+    assert report["true_on_red"] == 1
+    assert report["seen_on_red"] == 2

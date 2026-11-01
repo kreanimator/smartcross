@@ -3,6 +3,9 @@
 A track's lowest box edge is the front of the car, because the cameras face oncoming traffic.
 Measuring that point on the road plane gives its distance to the stop line, and how fast
 that distance shrinks gives its speed. Only the camera's calibration is used, never truth.
+
+A followed track whose front goes past the stop line is recorded as a crossing. These are not
+part of the observation, because the controller does not act on them.
 """
 
 from collections import deque
@@ -19,6 +22,14 @@ from vision.tracker import Track
 SPEED_WINDOW_S = 1.0  # Longer is steadier but slower to notice a stop.
 MIN_SPEED_WINDOW_S = 0.5  # Until a track has this much history its speed is unknown.
 FORGET_AFTER_S = 2.0  # History of a track unseen this long is dropped.
+CROSSING_MARGIN_M = 1.0  # How far past the line counts: cars halt 0.5 m short of it, and boxes jitter.
+
+
+@dataclass(frozen=True)
+class StopLineCrossing:
+    track_id: int
+    time_s: float  # Estimated between the frames either side of the line.
+    speed_mps: float
 
 
 @dataclass
@@ -26,6 +37,7 @@ class _Followed:
     history: deque = field(default_factory=deque)  # (time, distance to the stop line)
     last_seen_s: float = 0.0
     stopped_s: float = 0.0
+    crossed: bool = False
 
 
 class ApproachAnalyzer:
@@ -35,6 +47,7 @@ class ApproachAnalyzer:
         self.roi = spec.roi(approach)
         self.followed: dict[int, _Followed] = {}
         self.last_update_s: float | None = None
+        self.crossings: list[StopLineCrossing] = []
 
     def update(self, now_s: float, tracks: list[Track]) -> ApproachObservation:
         """Call once per frame, in time order."""
@@ -47,9 +60,12 @@ class ApproachAnalyzer:
         for track in tracks:
             front = ((track.box[0] + track.box[2]) / 2, track.box[3])
             ground = self.spec.ground_point(front)
-            if ground is None or not in_polygon(front, self.roi):
+            if ground is None:
                 continue
             distance = distance_to_line(self.approach, *ground)
+            if not in_polygon(front, self.roi):
+                self._note_crossing(track.id, now_s, distance)
+                continue
             followed = self.followed.setdefault(track.id, _Followed())
             followed.last_seen_s = now_s
             followed.history.append((now_s, distance))
@@ -74,6 +90,16 @@ class ApproachAnalyzer:
             oldest_wait_s=max(waits, default=0.0),
             average_speed_mps=sum(speeds) / len(speeds) if speeds else None,
         )
+
+    def _note_crossing(self, track_id: int, now_s: float, distance: float) -> None:
+        """Only a track already followed in the lane can cross, which leaves out cross traffic."""
+        followed = self.followed.get(track_id)
+        if followed is None or followed.crossed or distance >= -CROSSING_MARGIN_M:
+            return
+        followed.crossed = True
+        before_s, before = followed.history[-1]
+        speed = (before - distance) / (now_s - before_s)
+        self.crossings.append(StopLineCrossing(track_id, before_s + before / speed, speed))
 
     @staticmethod
     def _speed(followed: _Followed) -> float | None:
