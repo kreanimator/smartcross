@@ -27,6 +27,12 @@ def lane_point(approach: Approach, distance: float) -> tuple[float, float]:
     return (out_x * along + right_x * LANE_WIDTH / 2, out_z * along + right_z * LANE_WIDTH / 2)
 
 
+def distance_to_line(approach: Approach, x: float, z: float) -> float:
+    """How far before its stop line a ground point is on this approach; negative past the line."""
+    out_x, out_z = OUTWARD[approach]
+    return out_x * x + out_z * z - STOP_LINE
+
+
 def heading_degrees(approach: Approach) -> float:
     """Entity rotation_y of a vehicle driving toward the intersection."""
     return {

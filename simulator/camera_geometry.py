@@ -20,9 +20,10 @@ MAST_DISTANCE = 16  # How far past the centre of the intersection each camera st
 VIEW_DISTANCE = 22  # The road point it aims at, measured back from the stop line.
 OVERHEAD_HEIGHT = 65
 
-# How far back from the stop line each camera watches its lane. At 60 m a car is only about
-# 19 pixels wide on a roadside camera. The overhead frame ends just past 15 m.
-ROADSIDE_ROI_M = 60
+# How far back from the stop line each camera watches its lane: nearly to where cars enter, so
+# long queues stay in view. At 80 m a car is only about 16 pixels wide on a roadside camera.
+# The overhead frame ends just past 15 m.
+ROADSIDE_ROI_M = 90
 OVERHEAD_ROI_M = 15
 
 
@@ -52,6 +53,23 @@ class CameraSpec:
             float((1 + offset @ right / (depth * half_width)) / 2 * WIDTH),
             float((1 - offset @ up / (depth * half_height)) / 2 * HEIGHT),
         )
+
+    def ground_point(self, pixel) -> tuple[float, float] | None:
+        """The (x, z) on the road a pixel shows, or None if it shows sky."""
+        forward = _unit(np.subtract(self.target, self.position))
+        right = _unit(np.cross((0, 1, 0), forward))
+        up = np.cross(forward, right)
+        half_width = math.tan(math.radians(FOV) / 2)
+        half_height = half_width * HEIGHT / WIDTH
+        ray = (
+            forward
+            + right * (pixel[0] / WIDTH * 2 - 1) * half_width
+            + up * (1 - pixel[1] / HEIGHT * 2) * half_height
+        )
+        if ray[1] >= 0:
+            return None
+        along = -self.position[1] / ray[1]
+        return (float(self.position[0] + ray[0] * along), float(self.position[2] + ray[2] * along))
 
     def project_box(self, low, high) -> tuple[float, float, float, float] | None:
         """The (left, top, right, bottom) pixels around a world box, cut to the frame.
