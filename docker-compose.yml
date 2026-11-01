@@ -1,0 +1,7 @@
+# A local MQTT broker. It allows anonymous clients, so it is published on this machine only.
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.21
+    command: mosquitto -c /mosquitto-no-auth.conf
+    ports:
+      - "127.0.0.1:1883:1883"
