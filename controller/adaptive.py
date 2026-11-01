@@ -6,6 +6,10 @@ other side doesn't pay for a long queue here: its longest wait, its queue length
 its total vehicles. Once this side has cleared, green moves to the other side as soon as
 it has more pressure. Green also ends at max_green_s if anyone at all is waiting.
 
+Those checks stay out of the way while this side still has many vehicles to clear. Under
+overload the other side always looks urgent, and giving way to it every time spends the
+green on switching: greens fell to 16 s, with 23% of all time lost to clearance.
+
 If any approach cannot be seen, its zeros mean nothing, so a fixed-time plan runs until it can.
 """
 
@@ -25,6 +29,7 @@ MIN_GREEN_BEFORE_INTERRUPT_S = 15  # Switching loses 5 s, so a busy green must e
 MAX_WAIT_S = 40  # The other side's longest wait that a clearing queue may cause.
 MAX_QUEUE = 10  # The other side's longest queue; a lane holds about 13 vehicles.
 OUTGROWN_MARGIN = 6  # How many more vehicles the other side needs to interrupt clearing.
+SATURATED_VEHICLES = 10  # With this many left to clear, only max_green_s ends the green.
 
 
 @dataclass(frozen=True)
@@ -57,7 +62,7 @@ def is_clearing(observation: TrafficObservation, direction: str) -> bool:
 
 
 class Adaptive:
-    def __init__(self, max_green_s: float = 45, timings: Timings = Timings()):
+    def __init__(self, max_green_s: float = 75, timings: Timings = Timings()):
         self.max_green_s = max_green_s
         self.min_green_s = timings.min_green_s
         self.fallback = FixedTimer(timings=timings)
@@ -110,7 +115,7 @@ class Adaptive:
             return "max green"
         if not is_clearing(observation, green):
             return "queue cleared" if theirs > mine else None
-        if seconds_green < MIN_GREEN_BEFORE_INTERRUPT_S:
+        if seconds_green < MIN_GREEN_BEFORE_INTERRUPT_S or vehicles_left(observation, green) >= SATURATED_VEHICLES:
             return None
 
         waiting = seen_from(observation, other)

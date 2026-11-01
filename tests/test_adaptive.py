@@ -8,6 +8,7 @@ from controller.adaptive import (
     MAX_WAIT_S,
     MIN_GREEN_BEFORE_INTERRUPT_S,
     OUTGROWN_MARGIN,
+    SATURATED_VEHICLES,
     Adaptive,
     pressure,
 )
@@ -73,7 +74,7 @@ def test_far_away_vehicles_do_not_count_as_clearing():
 
 def test_long_wait_interrupts_a_clearing_queue():
     seen = {approach: ApproachObservation() for approach in Approach}
-    seen[Approach.NORTH] = ApproachObservation(queued=20)
+    seen[Approach.NORTH] = ApproachObservation(queued=SATURATED_VEHICLES - 1)
     seen[Approach.EAST] = ApproachObservation(queued=1, oldest_wait_s=MAX_WAIT_S)
     strategy = on_ns()
     assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
@@ -98,8 +99,8 @@ def test_a_cleared_green_can_still_end_before_the_gate():
 
 def test_long_queue_interrupts_a_clearing_queue():
     seen = {approach: ApproachObservation() for approach in Approach}
-    seen[Approach.NORTH] = ApproachObservation(queued=2, approaching=5)
-    seen[Approach.SOUTH] = ApproachObservation(queued=3, approaching=3)
+    seen[Approach.NORTH] = ApproachObservation(queued=2, approaching=2)
+    seen[Approach.SOUTH] = ApproachObservation(queued=3, approaching=2)
     seen[Approach.EAST] = ApproachObservation(queued=MAX_QUEUE)
     strategy = on_ns()
     assert strategy.decide(TrafficObservation(100.0, "test", seen), green_ns(15)) == "EW"
@@ -202,7 +203,8 @@ def test_every_green_respects_max_green_when_both_sides_are_busy():
         simulation.step()
         if simulation.lights.phase in (Phase.NS_GREEN, Phase.EW_GREEN):
             longest = max(longest, simulation.lights.seconds_in_phase)
-    assert 10 <= longest <= 45 + 1 + 2 * TIME_STEP_S  # One second is the observation interval.
+    limit = Adaptive().max_green_s
+    assert 10 <= longest <= limit + 1 + 2 * TIME_STEP_S  # One second is the observation interval.
 
 
 def test_adaptive_run_is_reproducible_and_logs_switches():
@@ -262,3 +264,41 @@ def test_control_returns_once_every_approach_is_seen():
     assert strategy.decide(TrafficObservation(0.0, "cv", blind), lights) == "NS"
     assert strategy.decide(TrafficObservation(1.0, "cv", clear), lights) == "EW"
     assert strategy.decisions[-1].reason == "queue cleared"
+
+
+def saturated_ns(**east):
+    seen = {approach: ApproachObservation() for approach in Approach}
+    seen[Approach.NORTH] = ApproachObservation(queued=SATURATED_VEHICLES)
+    seen[Approach.EAST] = ApproachObservation(**east)
+    return TrafficObservation(100.0, "test", seen)
+
+
+@pytest.mark.parametrize(
+    "east",
+    [
+        {"queued": 1, "oldest_wait_s": MAX_WAIT_S},
+        {"queued": MAX_QUEUE},
+        {"queued": SATURATED_VEHICLES + OUTGROWN_MARGIN + 1},
+    ],
+    ids=["long wait", "long queue", "outgrown"],
+)
+def test_nothing_interrupts_a_green_with_many_vehicles_left_to_clear(east):
+    assert on_ns().decide(saturated_ns(**east), green_ns(30)) == "NS"
+
+
+def test_max_green_still_ends_a_saturated_green():
+    strategy = on_ns()
+    assert strategy.decide(saturated_ns(queued=1), green_ns(strategy.max_green_s)) == "EW"
+    assert strategy.decisions[-1].reason == "max green"
+
+
+def test_overload_keeps_greens_long_instead_of_spending_them_on_switching():
+    simulation = Simulation(2, "adaptive", rates(14, 14))
+    switches = 0
+    before = simulation.lights.phase
+    for _ in range(int(1200 / TIME_STEP_S)):
+        simulation.step()
+        now = simulation.lights.phase
+        switches += now is not before and now in (Phase.NS_GREEN, Phase.EW_GREEN)
+        before = now
+    assert switches < 1200 / 30  # It was one green every 21 s before.
